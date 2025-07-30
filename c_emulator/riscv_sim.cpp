@@ -34,6 +34,7 @@ enum {
   OPT_VALIDATE_CONFIG,
   OPT_SAILCOV,
   OPT_ENABLE_EXPERIMENTAL_EXTENSIONS,
+  OPT_ENABLE_SPMP,
   OPT_PRINT_DTS,
   OPT_PRINT_ISA,
 };
@@ -119,6 +120,7 @@ static struct option options[] = {
     {"inst-limit",                     required_argument, 0, 'l'                },
     {"enable-experimental-extensions", no_argument,       0,
      OPT_ENABLE_EXPERIMENTAL_EXTENSIONS                                         },
+    {"enable-spmp",                    no_argument,       0, OPT_ENABLE_SPMP    },
 #ifdef SAILCOV
     {"sailcov-file",                   required_argument, 0, OPT_SAILCOV        },
 #endif
@@ -310,6 +312,10 @@ static int process_args(int argc, char **argv)
     case OPT_ENABLE_EXPERIMENTAL_EXTENSIONS:
       fprintf(stderr, "enabling unratified extensions.\n");
       rv_enable_experimental_extensions = true;
+      break;
+    case OPT_ENABLE_SPMP:
+      fprintf(stderr, "enabling SPMP (Supervisor Mode Physical Memory Protection).\n");
+      rv_enable_spmp = true;
       break;
 #ifdef SAILCOV
     case OPT_SAILCOV:

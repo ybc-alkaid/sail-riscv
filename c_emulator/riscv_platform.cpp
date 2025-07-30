@@ -81,6 +81,11 @@ mach_bits plat_htif_tohost(unit)
   return rv_htif_tohost;
 }
 
+bool plat_enable_spmp(unit)
+{
+  return rv_enable_spmp;
+}
+
 bool sys_enable_experimental_extensions(unit)
 {
   return rv_enable_experimental_extensions;

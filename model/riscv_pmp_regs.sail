@@ -1,7 +1,8 @@
 /*=======================================================================================*/
 /*  This Sail RISC-V architecture model, comprising all files and                        */
 /*  directories except where otherwise noted is subject the BSD                          */
-/*  two-clause license in the LICENSE file.                                              */
+/*  two-clause license in the LICENSE file.    // Check if MML (Machine Mode Lockdown) bit is set
+  if mseccfg[MML] == bitone then {                                          */
 /*                                                                                       */
 /*  SPDX-License-Identifier: BSD-2-Clause                                                */
 /*=======================================================================================*/
@@ -51,6 +52,77 @@ bitfield Pmpcfg_ent : bits(8) = {
 
 register pmpcfg_n : vector(64, Pmpcfg_ent)
 register pmpaddr_n : vector(64, xlenbits)
+
+/*=======================================================================================*/
+/*  PMP/SPMP Resource Sharing                                                            */
+/*                                                                                       */
+/*  The mpmpdeleg CSR controls the sharing of PMP_Resource between PMP and SPMP.       */
+/*  Each PMP_Resource consists of an address CSR, a configuration CSR, and associated  */
+/*  micro-architecture state.                                                           */
+/*=======================================================================================*/
+
+/* mpmpdeleg CSR format:
+ * Bits [15:7]: Reserved (WPRI)
+ * Bits [6:0]: pmpnum - Number of PMP entries (0-64)
+ * 
+ * Resource allocation:
+ * - PMP_Resource[0] to PMP_Resource[pmpnum-1] are allocated to PMP
+ * - PMP_Resource[pmpnum] to PMP_Resource[63] are allocated to SPMP
+ * 
+ * Default reset value: pmpnum = 0b100_0000 (64, all resources to PMP)
+ */
+bitfield Mpmpdeleg_ent : bits(16) = {
+  pmpnum : 6 .. 0  /* Number of PMP entries (0-64) */
+}
+
+register mpmpdeleg : Mpmpdeleg_ent
+
+/* Get the current PMP/SPMP split point */
+function getPmpNum() -> nat = unsigned(mpmpdeleg[pmpnum])
+
+/* Check if a resource index belongs to PMP (true) or SPMP (false) */
+function isPmpResource(idx: nat) -> bool = idx < getPmpNum()
+
+/* Get the actual number of available SPMP entries */
+function getSpmpEntryCount() -> nat = {
+  let pmp_count = getPmpNum();
+  if pmp_count >= 64 then 0 else 64 - pmp_count
+}
+
+/* Convert SPMP software index to hardware resource index */
+function spmpSwToHwIndex(sw_idx: nat) -> nat = getPmpNum() + sw_idx
+
+/* Convert hardware resource index to SPMP software index */
+function spmpHwToSwIndex(hw_idx: nat) -> nat = {
+  let pmp_num = getPmpNum();
+  if hw_idx >= pmp_num then hw_idx - pmp_num else 0
+}
+
+/* Validate pmpnum value according to constraints:
+ * - RV32: must be multiple of 4
+ * - RV64: must be multiple of 8  
+ * - Must be in range [0, 64]
+ */
+function isValidPmpNum(pmpnum: nat) -> bool = {
+  let alignment = if xlen == 32 then 4 else 8;
+  (pmpnum <= 64) & ((pmpnum % alignment) == 0)
+}
+
+/* Check if any PMP entry in the range [start, end) is locked */
+function anyPmpLocked(start: nat, end_: nat) -> bool = {
+  if start >= end_ then false
+  else if start >= 64 then false
+  else if end_ > 64 then anyPmpLocked(start, 64)
+  else {
+    (pmpcfg_n[start][L] == 0b1) | anyPmpLocked(start + 1, end_)
+  }
+}
+
+/* Reset mpmpdeleg register to default value */
+function reset_mpmpdeleg() -> unit = {
+  // Default: all 64 resources allocated to PMP (pmpnum = 64)
+  mpmpdeleg = [mpmpdeleg with pmpnum = 0b100_0000];
+}
 
 /* Packing and unpacking pmpcfg regs for xlen-width accesses */
 
@@ -239,8 +311,54 @@ mapping clause csr_name_map = 0x3ED  <-> "pmpaddr61"
 mapping clause csr_name_map = 0x3EE  <-> "pmpaddr62"
 mapping clause csr_name_map = 0x3EF  <-> "pmpaddr63"
 
+mapping clause csr_name_map = 0x1F2  <-> "mpmpdeleg"  // allows an implementation to hardwire the PMP/SPMP split if desired
+
+// mpmpdeleg
+function clause is_CSR_defined(0x1F2) = true
+function clause read_CSR(0x1F2) = zero_extend(mpmpdeleg.bits)
+function clause write_CSR(0x1F2, value) = {
+  let new_pmpnum = unsigned(value[6 .. 0]);
+  let current_pmpnum = getPmpNum();
+  
+  // Check if MML (Machine Mode Lockdown) bit is set
+  if mseccfg[MML] == 0b1 then {
+    // When MML is set, pmpnum is locked and cannot be changed
+    zero_extend(mpmpdeleg.bits)
+  }
+  // Check if new value is valid (alignment and range)
+  else if ~(isValidPmpNum(new_pmpnum)) then {
+    zero_extend(mpmpdeleg.bits)
+  }
+  // Check if any PMP entries in affected range are locked
+  else if new_pmpnum > current_pmpnum then {
+    // Moving resources from PMP to SPMP: check if any affected PMP entries are locked
+    if anyPmpLocked(new_pmpnum, current_pmpnum) then {
+      zero_extend(mpmpdeleg.bits)
+    } else {
+      mpmpdeleg = [mpmpdeleg with pmpnum = value[6 .. 0]];
+      zero_extend(mpmpdeleg.bits)
+    }
+  } else if new_pmpnum < current_pmpnum then {
+    // Moving resources from SPMP to PMP: check if any affected SPMP entries are locked
+    if anyPmpLocked(new_pmpnum, current_pmpnum) then {
+      zero_extend(mpmpdeleg.bits)
+    } else {
+      mpmpdeleg = [mpmpdeleg with pmpnum = value[6 .. 0]];
+      zero_extend(mpmpdeleg.bits)
+    }
+  } else {
+    // No change in pmpnum
+    zero_extend(mpmpdeleg.bits)
+  }
+}
+
 // pmpcfgN
-function clause is_CSR_defined(0x3A) @ idx : bits(4) = sys_pmp_count > unsigned(idx) & (idx[0] == bitzero | xlen == 32)
+function clause is_CSR_defined(0x3A) @ idx : bits(4) = {
+  let cfg_idx = unsigned(idx);
+  let max_entries = getPmpNum();
+  let first_entry = cfg_idx * (if xlen == 32 then 4 else 8);
+  (idx[0] == bitzero | xlen == 32) & (first_entry < max_entries)
+}
 function clause read_CSR(0x3A @ idx : bits(4) if idx[0] == bitzero | xlen == 32) = pmpReadCfgReg(unsigned(idx))
 function clause write_CSR((0x3A @ idx : bits(4), value) if idx[0] == bitzero | xlen == 32) = {
   let idx = unsigned(idx);
@@ -249,10 +367,22 @@ function clause write_CSR((0x3A @ idx : bits(4), value) if idx[0] == bitzero | x
 }
 
 // pmpaddrN. Unfortunately the PMP index does not nicely align with the CSR index bits.
-function clause is_CSR_defined(0x3B) @ idx : bits(4) = sys_pmp_count > unsigned(0b00 @ idx)
-function clause is_CSR_defined(0x3C) @ idx : bits(4) = sys_pmp_count > unsigned(0b01 @ idx)
-function clause is_CSR_defined(0x3D) @ idx : bits(4) = sys_pmp_count > unsigned(0b10 @ idx)
-function clause is_CSR_defined(0x3E) @ idx : bits(4) = sys_pmp_count > unsigned(0b11 @ idx)
+function clause is_CSR_defined(0x3B) @ idx : bits(4) = {
+  let addr_idx = unsigned(0b00 @ idx);
+  addr_idx < getPmpNum()
+}
+function clause is_CSR_defined(0x3C) @ idx : bits(4) = {
+  let addr_idx = unsigned(0b01 @ idx);
+  addr_idx < getPmpNum()
+}
+function clause is_CSR_defined(0x3D) @ idx : bits(4) = {
+  let addr_idx = unsigned(0b10 @ idx);
+  addr_idx < getPmpNum()
+}
+function clause is_CSR_defined(0x3E) @ idx : bits(4) = {
+  let addr_idx = unsigned(0b11 @ idx);
+  addr_idx < getPmpNum()
+}
 
 function clause read_CSR(0x3B @ idx : bits(4)) = pmpReadAddrReg(unsigned(0b00 @ idx))
 function clause read_CSR(0x3C @ idx : bits(4)) = pmpReadAddrReg(unsigned(0b01 @ idx))

@@ -36,11 +36,11 @@ let plat_cache_block_size_exp : range(0, 12) = config platform.cache_block_size_
 register plat_ram_base : physaddrbits = to_bits_checked(config platform.ram.base : int)
 register plat_ram_size : physaddrbits = to_bits_checked(config platform.ram.size : int)
 
-/* whether the platform supports SMPU configurations */
-val plat_enable_smpu = {ocaml: "Platform.enable_smpu",
-                       interpreter: "Platform.enable_smpu",
-                       c: "plat_enable_smpu",
-                       lem: "plat_enable_smpu"} : unit -> bool
+/* whether the platform supports SPMP configurations */
+val plat_enable_spmp = pure {ocaml: "Platform.enable_spmp",
+                             interpreter: "Platform.enable_spmp",
+                             c: "plat_enable_spmp",
+                             lem: "plat_enable_spmp"} : unit -> bool
 
 /* whether the MMU should update dirty bits in PTEs */
 let plat_enable_dirty_update : bool = config memory.translation.dirty_update

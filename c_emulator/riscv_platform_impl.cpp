@@ -22,6 +22,10 @@ bool rv_enable_htif = true;
 
 bool rv_enable_experimental_extensions = false;
 
+// SPMP (Supervisor Mode Physical Memory Protection) support
+// By default, SPMP is disabled for compatibility
+bool rv_enable_spmp = false;
+
 int term_fd = 1; // set during startup
 void plat_term_write_impl(char c)
 {

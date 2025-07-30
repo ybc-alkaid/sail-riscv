@@ -97,20 +97,23 @@ function pmpCheck forall 'n, 0 < 'n <= max_mem_access . (
 ) -> option(ExceptionType) = {
 
   let width : xlenbits = to_bits(width);
+  let pmp_count = getPmpNum();
 
   foreach (i from 0 to 63) {
-    let prev_pmpaddr = if i > 0 then pmpReadAddrReg(i - 1) else zeros();
-    let cfg = pmpcfg_n[i];
+    if i < pmp_count then {
+      let prev_pmpaddr = if i > 0 then pmpReadAddrReg(i - 1) else zeros();
+      let cfg = pmpcfg_n[i];
 
-    match pmpMatchAddr(addr, width, cfg, pmpReadAddrReg(i), prev_pmpaddr) {
-      PMP_NoMatch      => (),
-      PMP_PartialMatch => return Some(accessToFault(acc)),
-      PMP_Match        => return (
-        if pmpCheckRWX(cfg, acc) | (priv == Machine & not(pmpLocked(cfg)))
-        then None()
-        else Some(accessToFault(acc))
-      ),
-    };
+      match pmpMatchAddr(addr, width, cfg, pmpReadAddrReg(i), prev_pmpaddr) {
+        PMP_NoMatch      => (),
+        PMP_PartialMatch => return Some(accessToFault(acc)),
+        PMP_Match        => return (
+          if pmpCheckRWX(cfg, acc) | (priv == Machine & not(pmpLocked(cfg)))
+          then None()
+          else Some(accessToFault(acc))
+        ),
+      };
+    }
   };
   if priv == Machine then None() else Some(accessToFault(acc))
 }
@@ -121,4 +124,6 @@ function reset_pmp() -> unit = {
     // mandates a different value.
     pmpcfg_n[i] = [pmpcfg_n[i] with A = pmpAddrMatchType_to_bits(OFF), L = 0b0];
   };
+  // Reset mpmpdeleg register to default value
+  reset_mpmpdeleg();
 }

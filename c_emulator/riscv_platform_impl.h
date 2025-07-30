@@ -12,6 +12,9 @@ extern bool rv_enable_htif;
 
 extern bool rv_enable_experimental_extensions;
 
+// SPMP (Supervisor Mode Physical Memory Protection) support
+extern bool rv_enable_spmp;
+
 extern FILE *trace_log;
 extern int term_fd;
 void plat_term_write_impl(char c);

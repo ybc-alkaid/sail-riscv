@@ -305,6 +305,10 @@ bitfield Seccfg : bits(64) = {
   SSEED  : 9,
   // Enable access to SEED in U-mode
   USEED  : 8,
+  // SMEPMP extension control bits
+  MML   : 0,     /* Machine Mode Lockdown - locks PMP/SPMP configuration when set */
+  MMWP  : 1,     /* Machine Mode Whitelist Policy */
+  RLB   : 2      /* Rule Locking Bypass */
 }
 
 function legalize_mseccfg(o : Seccfg, v : bits(64)) -> Seccfg = {

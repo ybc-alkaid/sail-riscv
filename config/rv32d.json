@@ -14,6 +14,10 @@
       "grain": 0,
       "count": 16
     },
+    "spmp": {
+      "enabled": false,
+      "count": 64
+    },
     "misaligned": {
       "supported": true,
       "byte_by_byte": false,
