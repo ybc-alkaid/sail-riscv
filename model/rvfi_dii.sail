@@ -1,75 +1,13 @@
 /*=======================================================================================*/
-/*  RISCV Sail Model                                                                     */
-/*                                                                                       */
 /*  This Sail RISC-V architecture model, comprising all files and                        */
-/*  directories except for the snapshots of the Lem and Sail libraries                   */
-/*  in the prover_snapshots directory (which include copies of their                     */
-/*  licences), is subject to the BSD two-clause licence below.                           */
+/*  directories except where otherwise noted is subject the BSD                          */
+/*  two-clause license in the LICENSE file.                                              */
 /*                                                                                       */
-/*  Copyright (c) 2017-2021                                                              */
-/*    Prashanth Mundkur                                                                  */
-/*    Rishiyur S. Nikhil and Bluespec, Inc.                                              */
-/*    Jon French                                                                         */
-/*    Brian Campbell                                                                     */
-/*    Robert Norton-Wright                                                               */
-/*    Alasdair Armstrong                                                                 */
-/*    Thomas Bauereiss                                                                   */
-/*    Shaked Flur                                                                        */
-/*    Christopher Pulte                                                                  */
-/*    Peter Sewell                                                                       */
-/*    Alexander Richardson                                                               */
-/*    Hesham Almatary                                                                    */
-/*    Jessica Clarke                                                                     */
-/*    Microsoft, for contributions by Robert Norton-Wright and Nathaniel Wesley Filardo  */
-/*    Peter Rugg                                                                         */
-/*    Aril Computer Corp., for contributions by Scott Johnson                            */
-/*                                                                                       */
-/*  All rights reserved.                                                                 */
-/*                                                                                       */
-/*  This software was developed by the above within the Rigorous                         */
-/*  Engineering of Mainstream Systems (REMS) project, partly funded by                   */
-/*  EPSRC grant EP/K008528/1, at the Universities of Cambridge and                       */
-/*  Edinburgh.                                                                           */
-/*                                                                                       */
-/*  This software was developed by SRI International and the University of               */
-/*  Cambridge Computer Laboratory (Department of Computer Science and                    */
-/*  Technology) under DARPA/AFRL contract FA8650-18-C-7809 ("CIFV"), and                 */
-/*  under DARPA contract HR0011-18-C-0016 ("ECATS") as part of the DARPA                 */
-/*  SSITH research programme.                                                            */
-/*                                                                                       */
-/*  This project has received funding from the European Research Council                 */
-/*  (ERC) under the European Union’s Horizon 2020 research and innovation                */
-/*  programme (grant agreement 789108, ELVER).                                           */
-/*                                                                                       */
-/*                                                                                       */
-/*  Redistribution and use in source and binary forms, with or without                   */
-/*  modification, are permitted provided that the following conditions                   */
-/*  are met:                                                                             */
-/*  1. Redistributions of source code must retain the above copyright                    */
-/*     notice, this list of conditions and the following disclaimer.                     */
-/*  2. Redistributions in binary form must reproduce the above copyright                 */
-/*     notice, this list of conditions and the following disclaimer in                   */
-/*     the documentation and/or other materials provided with the                        */
-/*     distribution.                                                                     */
-/*                                                                                       */
-/*  THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS''                   */
-/*  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED                    */
-/*  TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A                      */
-/*  PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR                  */
-/*  CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,                         */
-/*  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT                     */
-/*  LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF                     */
-/*  USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND                  */
-/*  ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,                   */
-/*  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT                   */
-/*  OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF                   */
-/*  SUCH DAMAGE.                                                                         */
+/*  SPDX-License-Identifier: BSD-2-Clause                                                */
 /*=======================================================================================*/
 
 // "RISC-V Formal Interface - Direct Instruction Injection" support
 // For use with https://github.com/CTSRD-CHERI/TestRIG
-
-$define RVFI_DII
 
 bitfield RVFI_DII_Instruction_Packet : bits(64) = {
    padding   : 63 .. 56, // [7]
@@ -84,51 +22,27 @@ bitfield RVFI_DII_Instruction_Packet : bits(64) = {
 
 register rvfi_instruction : RVFI_DII_Instruction_Packet
 
-val rvfi_set_instr_packet : bits(64) -> unit effect {wreg}
+val rvfi_set_instr_packet : bits(64) -> unit
 
 function rvfi_set_instr_packet(p) =
   rvfi_instruction = Mk_RVFI_DII_Instruction_Packet(p)
 
-val rvfi_get_cmd : unit -> bits(8) effect {rreg}
+val rvfi_get_cmd : unit -> bits(8)
 
-function rvfi_get_cmd () = rvfi_instruction.rvfi_cmd()
+function rvfi_get_cmd () = rvfi_instruction[rvfi_cmd]
 
-val rvfi_get_insn : unit -> bits(32) effect {rreg}
+val rvfi_get_insn : unit -> bits(32)
 
-function rvfi_get_insn () = rvfi_instruction.rvfi_insn()
+function rvfi_get_insn () = rvfi_instruction[rvfi_insn]
 
 val print_instr_packet : bits(64) -> unit
 
 function print_instr_packet(bs) = {
   let p = Mk_RVFI_DII_Instruction_Packet(bs);
-  print_bits("command ", p.rvfi_cmd());
-  print_bits("instruction ", p.rvfi_insn())
+  print_bits("command ", p[rvfi_cmd]);
+  print_bits("instruction ", p[rvfi_insn])
 }
 
-bitfield RVFI_DII_Execution_Packet_V1 : bits(704) = {
-   rvfi_intr      : 703 .. 696, // [87] Trap handler:            Set for first instruction in trap handler.
-   rvfi_halt      : 695 .. 688, // [86] Halt indicator:          Marks the last instruction retired 
-                                //                                      before halting execution.
-   rvfi_trap      : 687 .. 680, // [85] Trap indicator:          Invalid decode, misaligned access or
-                                //                                      jump command to misaligned address.
-   rvfi_rd_addr   : 679 .. 672, // [84]      Write register address:  MUST be 0 if not used.
-   rvfi_rs2_addr  : 671 .. 664, // [83]                          otherwise set as decoded.
-   rvfi_rs1_addr  : 663 .. 656, // [82]      Read register addresses: Can be arbitrary when not used,
-   rvfi_mem_wmask : 655 .. 648, // [81]      Write mask:              Indicates valid bytes written. 0 if unused.
-   rvfi_mem_rmask : 647 .. 640, // [80]      Read mask:               Indicates valid bytes read. 0 if unused.
-   rvfi_mem_wdata : 639 .. 576, // [72 - 79] Write data:              Data written to memory by this command.
-   rvfi_mem_rdata : 575 .. 512, // [64 - 71] Read data:               Data read from mem_addr (i.e. before write)
-   rvfi_mem_addr  : 511 .. 448, // [56 - 63] Memory access addr:      Points to byte address (aligned if define
-                                //                                      is set). *Should* be straightforward.
-                                //                                      0 if unused.
-   rvfi_rd_wdata  : 447 .. 384, // [48 - 55] Write register value:    MUST be 0 if rd_ is 0.
-   rvfi_rs2_data  : 383 .. 320, // [40 - 47]                          above. Must be 0 if register ID is 0.
-   rvfi_rs1_data  : 319 .. 256, // [32 - 39] Read register values:    Values as read from registers named
-   rvfi_insn      : 255 .. 192, // [24 - 31] Instruction word:        32-bit command value.
-   rvfi_pc_wdata  : 191 .. 128, // [16 - 23] PC after instr:          Following PC - either PC + 4 or jump/trap target.
-   rvfi_pc_rdata  : 127 ..  64, // [08 - 15] PC before instr:         PC for current instruction
-   rvfi_order     :  63 ..   0, // [00 - 07] Instruction number:      INSTRET value after completion.
-}
 
 bitfield RVFI_DII_Execution_Packet_InstMetaData : bits(192) = {
   /// The rvfi_order field must be set to the instruction index. No indices
@@ -235,22 +149,6 @@ bitfield RVFI_DII_Execution_Packet_Ext_MemAccess : bits(704) = {
   rvfi_mem_addr : 703 .. 640,
 }
 
-bitfield RVFI_DII_Execution_PacketV2 : bits(512) = {
-  magic : 63 .. 0,         // must be set to 'trace-v2'
-  trace_size : 127 .. 64,  // total size of the trace packet + extensions
-  basic_data : 319 .. 128, // RVFI_DII_Execution_Packet_InstMetaData
-  pc_data : 447 .. 320,    // RVFI_DII_Execution_Packet_PC
-  // available_fields : 511 .. 448,
-  integer_data_available: 448, // Followed by RVFI_DII_Execution_Packet_Ext_Integer if set
-  memory_access_data_available: 449, // Followed by R VFI_DII_Execution_Packet_Ext_MemAccess if set
-  floating_point_data_available: 450, // TODO: Followed by RVFI_DII_Execution_Packet_Ext_FP if set
-  csr_read_write_data_available: 451, // TODO: Followed by RVFI_DII_Execution_Packet_Ext_CSR if set
-  cheri_data_available: 452, // TODO: Followed by RVFI_DII_Execution_Packet_Ext_CHERI if set
-  cheri_scr_read_write_data_available: 453, // TODO: Followed by RVFI_DII_Execution_Packet_Ext_CHERI_SCR if set
-  trap_data_available: 454, // TODO: Followed by RVFI_DII_Execution_Packet_Ext_Trap if set
-  unused_data_available_fields : 511 .. 455, // To be used for additional RVFI_DII_Execution_Packet_Ext_* structs
-}
-
 register rvfi_inst_data : RVFI_DII_Execution_Packet_InstMetaData
 register rvfi_pc_data : RVFI_DII_Execution_Packet_PC
 register rvfi_int_data : RVFI_DII_Execution_Packet_Ext_Integer
@@ -259,16 +157,16 @@ register rvfi_mem_data : RVFI_DII_Execution_Packet_Ext_MemAccess
 register rvfi_mem_data_present : bool
 
 // Reset the trace
-val rvfi_zero_exec_packet : unit -> unit effect {wreg}
+val rvfi_zero_exec_packet : unit -> unit
 
 function rvfi_zero_exec_packet () = {
-  rvfi_inst_data = Mk_RVFI_DII_Execution_Packet_InstMetaData(EXTZ(0b0));
-  rvfi_pc_data = Mk_RVFI_DII_Execution_Packet_PC(EXTZ(0b0));
-  rvfi_int_data = Mk_RVFI_DII_Execution_Packet_Ext_Integer(EXTZ(0x0));
+  rvfi_inst_data = Mk_RVFI_DII_Execution_Packet_InstMetaData(zeros());
+  rvfi_pc_data = Mk_RVFI_DII_Execution_Packet_PC(zeros());
+  rvfi_int_data = Mk_RVFI_DII_Execution_Packet_Ext_Integer(zeros());
   // magic = "int-data" -> 0x617461642d746e69 (big-endian)
   rvfi_int_data = update_magic(rvfi_int_data, 0x617461642d746e69);
   rvfi_int_data_present = false;
-  rvfi_mem_data = Mk_RVFI_DII_Execution_Packet_Ext_MemAccess(EXTZ(0x0));
+  rvfi_mem_data = Mk_RVFI_DII_Execution_Packet_Ext_MemAccess(zeros());
   // magic = "mem-data" -> 0x617461642d6d656d (big-endian)
   rvfi_mem_data = update_magic(rvfi_mem_data, 0x617461642d6d656d);
   rvfi_mem_data_present = false;
@@ -276,112 +174,92 @@ function rvfi_zero_exec_packet () = {
 
 // FIXME: most of these will no longer be necessary once we use the c2 sail backend.
 
-val rvfi_halt_exec_packet : unit -> unit effect {wreg}
+val rvfi_halt_exec_packet : unit -> unit
 
 function rvfi_halt_exec_packet () =
-  rvfi_inst_data->rvfi_halt() = 0x01
+  rvfi_inst_data[rvfi_halt] = 0x01
 
-val rvfi_get_v2_support_packet : unit -> bits(704)
-function rvfi_get_v2_support_packet () = {
-  let rvfi_exec = Mk_RVFI_DII_Execution_Packet_V1(EXTZ(0b0));
-  // Returning 0x3 (using the unused high bits) in halt instead of 0x1 means
-  // that we support the version 2 wire format. This is required to keep
-  // backwards compatibility with old implementations that do not support
-  // the new trace format.
-  let rvfi_exec = update_rvfi_halt(rvfi_exec, 0x03);
-  return rvfi_exec.bits();
-}
-
-val rvfi_get_exec_packet_v1 : unit -> bits(704) effect {rreg}
-function rvfi_get_exec_packet_v1 () = {
-  let v1_packet = Mk_RVFI_DII_Execution_Packet_V1(EXTZ(0b0));
-  // Convert the v2 packet to a v1 packet
-  let v1_packet = update_rvfi_intr(v1_packet, rvfi_inst_data.rvfi_intr());
-  let v1_packet = update_rvfi_halt(v1_packet, rvfi_inst_data.rvfi_halt());
-  let v1_packet = update_rvfi_trap(v1_packet, rvfi_inst_data.rvfi_trap());
-  let v1_packet = update_rvfi_insn(v1_packet, rvfi_inst_data.rvfi_insn());
-  let v1_packet = update_rvfi_order(v1_packet, rvfi_inst_data.rvfi_order());
-
-  let v1_packet = update_rvfi_pc_wdata(v1_packet, rvfi_pc_data.rvfi_pc_wdata());
-  let v1_packet = update_rvfi_pc_rdata(v1_packet, rvfi_pc_data.rvfi_pc_rdata());
-
-  let v1_packet = update_rvfi_rd_addr(v1_packet, rvfi_int_data.rvfi_rd_addr());
-  let v1_packet = update_rvfi_rs2_addr(v1_packet, rvfi_int_data.rvfi_rs2_addr());
-  let v1_packet = update_rvfi_rs1_addr(v1_packet, rvfi_int_data.rvfi_rs1_addr());
-  let v1_packet = update_rvfi_rd_wdata(v1_packet, rvfi_int_data.rvfi_rd_wdata());
-  let v1_packet = update_rvfi_rs2_data(v1_packet, rvfi_int_data.rvfi_rs2_rdata());
-  let v1_packet = update_rvfi_rs1_data(v1_packet, rvfi_int_data.rvfi_rs1_rdata());
-
-  let v1_packet = update_rvfi_mem_wmask(v1_packet, truncate(rvfi_mem_data.rvfi_mem_wmask(), 8));
-  let v1_packet = update_rvfi_mem_rmask(v1_packet, truncate(rvfi_mem_data.rvfi_mem_rmask(), 8));
-  let v1_packet = update_rvfi_mem_wdata(v1_packet, truncate(rvfi_mem_data.rvfi_mem_wdata(), 64));
-  let v1_packet = update_rvfi_mem_rdata(v1_packet, truncate(rvfi_mem_data.rvfi_mem_rdata(), 64));
-  let v1_packet = update_rvfi_mem_addr(v1_packet, rvfi_mem_data.rvfi_mem_addr());
-
-  return v1_packet.bits();
-}
-
-val rvfi_get_v2_trace_size : unit -> bits(64) effect {rreg}
-function rvfi_get_v2_trace_size () = {
-  let trace_size : bits(64) = to_bits(64, 512);
-  let trace_size = if (rvfi_int_data_present) then trace_size + 320 else trace_size;
-  let trace_size = if (rvfi_mem_data_present) then trace_size + 704 else trace_size;
-  return trace_size >> 3; // we have to return bytes not bits
-}
-
-val rvfi_get_exec_packet_v2 : unit -> bits(512) effect {rreg}
-function rvfi_get_exec_packet_v2 () = {
-  // TODO: add the other data
-  // TODO: find a way to return a variable-length bitvector
-  let packet = Mk_RVFI_DII_Execution_PacketV2(EXTZ(0b0));
-  let packet = update_magic(packet, 0x32762d6563617274); // ASCII "trace-v2" (BE)
-  let packet = update_basic_data(packet, rvfi_inst_data.bits());
-  let packet = update_pc_data(packet, rvfi_pc_data.bits());
-  let packet = update_integer_data_available(packet, bool_to_bits(rvfi_int_data_present));
-  let packet = update_memory_access_data_available(packet, bool_to_bits(rvfi_mem_data_present));
-  // To simplify the implementation (so that we can return a fixed-size vector)
-  // we always return a max-size packet from this function, and the C emulator
-  // ensures that only trace_size bits are sent over the socket.
-  let packet = update_trace_size(packet, rvfi_get_v2_trace_size());
-  return packet.bits();
-}
-
-val rvfi_get_int_data : unit -> bits(320) effect {rreg}
+val rvfi_get_int_data : unit -> bits(320)
 function rvfi_get_int_data () = {
   assert(rvfi_int_data_present, "reading uninitialized data");
-  return rvfi_int_data.bits();
+  return rvfi_int_data.bits;
 }
 
-val rvfi_get_mem_data : unit -> bits(704) effect {rreg}
+val rvfi_get_mem_data : unit -> bits(704)
 function rvfi_get_mem_data () = {
   assert(rvfi_mem_data_present, "reading uninitialized data");
-  return rvfi_mem_data.bits();
+  return rvfi_mem_data.bits;
 }
 
-val rvfi_encode_width_mask : forall 'n, 0 < 'n <= 32. atom('n) -> bits(32)
+val rvfi_encode_width_mask : forall 'n, 0 < 'n <= 32. int('n) -> bits(32)
 
 function rvfi_encode_width_mask(width) =
   (0xFFFFFFFF >> (32 - width))
 
-val print_rvfi_exec : unit -> unit effect {rreg}
+val print_rvfi_exec : unit -> unit
 
 function print_rvfi_exec () = {
-  print_bits("rvfi_intr     : ", rvfi_inst_data.rvfi_intr());
-  print_bits("rvfi_halt     : ", rvfi_inst_data.rvfi_halt());
-  print_bits("rvfi_trap     : ", rvfi_inst_data.rvfi_trap());
-  print_bits("rvfi_rd_addr  : ", rvfi_int_data.rvfi_rd_addr());
-  print_bits("rvfi_rs2_addr : ", rvfi_int_data.rvfi_rs2_addr());
-  print_bits("rvfi_rs1_addr : ", rvfi_int_data.rvfi_rs1_addr());
-  print_bits("rvfi_mem_wmask: ", rvfi_mem_data.rvfi_mem_wmask());
-  print_bits("rvfi_mem_rmask: ", rvfi_mem_data.rvfi_mem_rmask());
-  print_bits("rvfi_mem_wdata: ", rvfi_mem_data.rvfi_mem_wdata());
-  print_bits("rvfi_mem_rdata: ", rvfi_mem_data.rvfi_mem_rdata());
-  print_bits("rvfi_mem_addr : ", rvfi_mem_data.rvfi_mem_addr());
-  print_bits("rvfi_rd_wdata : ", rvfi_int_data.rvfi_rd_wdata());
-  print_bits("rvfi_rs2_data : ", rvfi_int_data.rvfi_rs2_rdata());
-  print_bits("rvfi_rs1_data : ", rvfi_int_data.rvfi_rs1_rdata());
-  print_bits("rvfi_insn     : ", rvfi_inst_data.rvfi_insn());
-  print_bits("rvfi_pc_wdata : ", rvfi_pc_data.rvfi_pc_wdata());
-  print_bits("rvfi_pc_rdata : ", rvfi_pc_data.rvfi_pc_rdata());
-  print_bits("rvfi_order    : ", rvfi_inst_data.rvfi_order());
+  print_bits("rvfi_intr     : ", rvfi_inst_data[rvfi_intr]);
+  print_bits("rvfi_halt     : ", rvfi_inst_data[rvfi_halt]);
+  print_bits("rvfi_trap     : ", rvfi_inst_data[rvfi_trap]);
+  print_bits("rvfi_rd_addr  : ", rvfi_int_data[rvfi_rd_addr]);
+  print_bits("rvfi_rs2_addr : ", rvfi_int_data[rvfi_rs2_addr]);
+  print_bits("rvfi_rs1_addr : ", rvfi_int_data[rvfi_rs1_addr]);
+  print_bits("rvfi_mem_wmask: ", rvfi_mem_data[rvfi_mem_wmask]);
+  print_bits("rvfi_mem_rmask: ", rvfi_mem_data[rvfi_mem_rmask]);
+  print_bits("rvfi_mem_wdata: ", rvfi_mem_data[rvfi_mem_wdata]);
+  print_bits("rvfi_mem_rdata: ", rvfi_mem_data[rvfi_mem_rdata]);
+  print_bits("rvfi_mem_addr : ", rvfi_mem_data[rvfi_mem_addr]);
+  print_bits("rvfi_rd_wdata : ", rvfi_int_data[rvfi_rd_wdata]);
+  print_bits("rvfi_rs2_data : ", rvfi_int_data[rvfi_rs2_rdata]);
+  print_bits("rvfi_rs1_data : ", rvfi_int_data[rvfi_rs1_rdata]);
+  print_bits("rvfi_insn     : ", rvfi_inst_data[rvfi_insn]);
+  print_bits("rvfi_pc_wdata : ", rvfi_pc_data[rvfi_pc_wdata]);
+  print_bits("rvfi_pc_rdata : ", rvfi_pc_data[rvfi_pc_rdata]);
+  print_bits("rvfi_order    : ", rvfi_inst_data[rvfi_order]);
 }
+
+/* RVFI records */
+val rvfi_write : forall 'n, 0 < 'n <= max_mem_access . (xlenbits, int('n), bits(8 * 'n)) -> unit
+function rvfi_write (paddr, width, value) = {
+  rvfi_mem_data[rvfi_mem_addr] = zero_extend(paddr);
+  rvfi_mem_data_present = true;
+  if width <= 16 then {
+    /* TODO: report tag bit for capability writes and extend mask by one bit. */
+    rvfi_mem_data[rvfi_mem_wdata] = sail_zero_extend(value, 256);
+    rvfi_mem_data[rvfi_mem_wmask] = rvfi_encode_width_mask(width);
+  } else {
+    internal_error(__FILE__, __LINE__, "Expected at most 16 bytes here!");
+  };
+}
+
+val rvfi_read : forall 'n, 'n > 0. (xlenbits, int('n), bits(8 * 'n)) -> unit
+function rvfi_read (paddr, width, value) = {
+  rvfi_mem_data[rvfi_mem_addr] = zero_extend(paddr);
+  rvfi_mem_data_present = true;
+  if width <= 16 then {
+    /* TODO: report tag bit for capability writes and extend mask by one bit. */
+    rvfi_mem_data[rvfi_mem_rdata] = sail_zero_extend(value, 256);
+    rvfi_mem_data[rvfi_mem_rmask] = rvfi_encode_width_mask(width)
+  } else {
+    internal_error(__FILE__, __LINE__, "Expected at most 16 bytes here!")
+  };
+}
+
+val rvfi_mem_exception : xlenbits -> unit
+function rvfi_mem_exception (paddr) = {
+  /* Log only the memory address (without the value) if the write fails. */
+  rvfi_mem_data[rvfi_mem_addr] = zero_extend(paddr);
+  rvfi_mem_data_present = true;
+}
+
+val rvfi_wX : forall 'n, 0 <= 'n < 32. (int('n), xlenbits) -> unit
+function rvfi_wX (r,v) = {
+  rvfi_int_data[rvfi_rd_wdata] = zero_extend(v);
+  rvfi_int_data[rvfi_rd_addr] = to_bits(8, r);
+  rvfi_int_data_present = true;
+}
+
+val rvfi_trap : unit -> unit
+function rvfi_trap () =
+  rvfi_inst_data[rvfi_trap] = 0x01

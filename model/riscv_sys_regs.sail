@@ -1,69 +1,9 @@
 /*=======================================================================================*/
-/*  RISCV Sail Model                                                                     */
-/*                                                                                       */
 /*  This Sail RISC-V architecture model, comprising all files and                        */
-/*  directories except for the snapshots of the Lem and Sail libraries                   */
-/*  in the prover_snapshots directory (which include copies of their                     */
-/*  licences), is subject to the BSD two-clause licence below.                           */
+/*  directories except where otherwise noted is subject the BSD                          */
+/*  two-clause license in the LICENSE file.                                              */
 /*                                                                                       */
-/*  Copyright (c) 2017-2021                                                              */
-/*    Prashanth Mundkur                                                                  */
-/*    Rishiyur S. Nikhil and Bluespec, Inc.                                              */
-/*    Jon French                                                                         */
-/*    Brian Campbell                                                                     */
-/*    Robert Norton-Wright                                                               */
-/*    Alasdair Armstrong                                                                 */
-/*    Thomas Bauereiss                                                                   */
-/*    Shaked Flur                                                                        */
-/*    Christopher Pulte                                                                  */
-/*    Peter Sewell                                                                       */
-/*    Alexander Richardson                                                               */
-/*    Hesham Almatary                                                                    */
-/*    Jessica Clarke                                                                     */
-/*    Microsoft, for contributions by Robert Norton-Wright and Nathaniel Wesley Filardo  */
-/*    Peter Rugg                                                                         */
-/*    Aril Computer Corp., for contributions by Scott Johnson                            */
-/*                                                                                       */
-/*  All rights reserved.                                                                 */
-/*                                                                                       */
-/*  This software was developed by the above within the Rigorous                         */
-/*  Engineering of Mainstream Systems (REMS) project, partly funded by                   */
-/*  EPSRC grant EP/K008528/1, at the Universities of Cambridge and                       */
-/*  Edinburgh.                                                                           */
-/*                                                                                       */
-/*  This software was developed by SRI International and the University of               */
-/*  Cambridge Computer Laboratory (Department of Computer Science and                    */
-/*  Technology) under DARPA/AFRL contract FA8650-18-C-7809 ("CIFV"), and                 */
-/*  under DARPA contract HR0011-18-C-0016 ("ECATS") as part of the DARPA                 */
-/*  SSITH research programme.                                                            */
-/*                                                                                       */
-/*  This project has received funding from the European Research Council                 */
-/*  (ERC) under the European Union’s Horizon 2020 research and innovation                */
-/*  programme (grant agreement 789108, ELVER).                                           */
-/*                                                                                       */
-/*                                                                                       */
-/*  Redistribution and use in source and binary forms, with or without                   */
-/*  modification, are permitted provided that the following conditions                   */
-/*  are met:                                                                             */
-/*  1. Redistributions of source code must retain the above copyright                    */
-/*     notice, this list of conditions and the following disclaimer.                     */
-/*  2. Redistributions in binary form must reproduce the above copyright                 */
-/*     notice, this list of conditions and the following disclaimer in                   */
-/*     the documentation and/or other materials provided with the                        */
-/*     distribution.                                                                     */
-/*                                                                                       */
-/*  THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS''                   */
-/*  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED                    */
-/*  TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A                      */
-/*  PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR                  */
-/*  CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,                         */
-/*  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT                     */
-/*  LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF                     */
-/*  USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND                  */
-/*  ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,                   */
-/*  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT                   */
-/*  OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF                   */
-/*  SUCH DAMAGE.                                                                         */
+/*  SPDX-License-Identifier: BSD-2-Clause                                                */
 /*=======================================================================================*/
 
 /* Machine-mode and supervisor-mode state definitions. */
@@ -82,12 +22,12 @@ register cur_inst : xlenbits
  * views from lower privilege levels.  So, for e.g. when mstatus is read from
  * lower privilege levels, we use 'lowering_' projections:
  *
- *   mstatus  ->  sstatus  ->  ustatus
+ *   mstatus  ->  sstatus
  *
  * Similarly, when machine state is written from lower privileges, that state is
  * lifted into the appropriate value for the machine-mode state.
  *
- *   ustatus  ->  sstatus  ->  mstatus
+ *   sstatus  ->  mstatus
  *
  * In addition, several fields in machine state registers are WARL or WLRL,
  * requiring that values written to the registers be legalized.  For each such
@@ -136,98 +76,105 @@ bitfield Misa : xlenbits = {
   B    : 1,
   A    : 0
 }
-register misa : Misa
+register misa : Misa =
+  [ Mk_Misa(zeros()) with
+    // MXL is a read-only field that specifies the native XLEN.
+    MXL = architecture(if xlen == 32 then RV32 else RV64),
+  ]
 
 /* whether misa is R/W */
-val sys_enable_writable_misa = {c: "sys_enable_writable_misa", ocaml: "Platform.enable_writable_misa", _: "sys_enable_writable_misa"} : unit -> bool
-/* whether misa.c was enabled at boot */
-val sys_enable_rvc = {c: "sys_enable_rvc", ocaml: "Platform.enable_rvc", _: "sys_enable_rvc"} : unit -> bool
-/* whether misa.{f,d} were enabled at boot */
-val sys_enable_fdext = {c: "sys_enable_fdext", ocaml: "Platform.enable_fdext", _: "sys_enable_fdext"} : unit -> bool
-/* whether zfinx was enabled at boot */
-val sys_enable_zfinx = {c: "sys_enable_zfinx", ocaml: "Platform.enable_zfinx", _: "sys_enable_zfinx"} : unit -> bool
-/* whether the N extension was enabled at boot */
-val sys_enable_next = {c: "sys_enable_next", ocaml: "Platform.enable_next", _: "sys_enable_next"} : unit -> bool
+let sys_enable_writable_misa : bool = config base.writable_misa
+
+/* Whether FIOM bit of menvcfg/senvcfg is enabled. It must be enabled if
+   supervisor mode is implemented and non-bare addressing modes are supported. */
+let sys_enable_writable_fiom : bool = config base.writable_fiom
+
+/* Which HPM counters are supported (as a bit mask). Bits [2 .. 0] are ignored. */
+let sys_writable_hpm_counters : bits(32) = config base.writable_hpm_counters
+
+// Supervisor timecmp
+function clause currentlyEnabled(Ext_Sstc) = hartSupports(Ext_Sstc)
 
 /* This function allows an extension to veto a write to Misa
    if it would violate an alignment restriction on
    unsetting C. If it returns true the write will have no effect. */
-val ext_veto_disable_C : unit -> bool effect {rreg}
+val ext_veto_disable_C : unit -> bool
 
-/* We currently only support dynamic changes for the C extension. */
 function legalize_misa(m : Misa, v : xlenbits) -> Misa = {
-  if   sys_enable_writable_misa ()
-  then { /* Handle modifications to C. */
-         let  v = Mk_Misa(v);
-         /* Suppress changing C if nextPC would become misaligned or an extension vetoes or C was disabled at boot (i.e. not supported). */
-         let m =
-           if   (v.C() == 0b0 & (nextPC[1] == bitone | ext_veto_disable_C())) | ~(sys_enable_rvc())
-           then m
-           else update_C(m, v.C());
-         /* Handle updates for F/D. */
-         if   ~(sys_enable_fdext()) | (v.D() == 0b1 & v.F() == 0b0)
-         then m
-         else update_D(update_F(m, v.F()), v.D())
-       }
-  else m
+  let v = Mk_Misa(v);
+  /* Suppress updates to MISA if MISA is not writable or if by disabling C next PC would become misaligned or an extension vetoes */
+  if   not(sys_enable_writable_misa) | (v[C] == 0b0 & (nextPC[1] == bitone | ext_veto_disable_C()))
+  then m
+  else [m with
+    A = if hartSupports(Ext_A) then v[A] else 0b0,
+    B = if hartSupports(Ext_B) then v[B] else 0b0,
+    C = if hartSupports(Ext_C) then v[C] else 0b0,
+    D = if hartSupports(Ext_D) & v[F] == 0b1 then v[D] else 0b0,
+    F = if hartSupports(Ext_F) then v[F] else 0b0,
+    H = if hartSupports(Ext_H) then v[H] else 0b0, // TODO: Not fully supported yet
+    I = 0b1, // I is currently always supported
+    M = if hartSupports(Ext_M) then v[M] else 0b0,
+    // Q = if hartSupports(Ext_Q) then v[Q] else 0b0, TODO: Not supported yet
+    S = if hartSupports(Ext_S) & v[U] == 0b1 then v[S] else 0b0,
+    U = if hartSupports(Ext_U) then v[U] else 0b0,
+    V = if hartSupports(Ext_V) & v[F] == 0b1 & v[D] == 0b1 then v[V] else 0b0,
+    // X = ... TODO: If custom extensions are present this should be 1
+  ]
 }
 
-/* helpers to check support for various extensions. */
-/* we currently don't model 'E', so always assume 'I'. */
-function haveAtomics() -> bool = misa.A() == 0b1
-function haveRVC()     -> bool = misa.C() == 0b1
-function haveMulDiv()  -> bool = misa.M() == 0b1
-function haveSupMode() -> bool = misa.S() == 0b1
-function haveUsrMode() -> bool = misa.U() == 0b1
-function haveNExt()    -> bool = misa.N() == 0b1
-/* see below for F and D (and Z*inx counterparts) extension tests */
+mapping clause csr_name_map = 0x301  <-> "misa"
+function clause is_CSR_defined(0x301) = true // misa
+function clause read_CSR(0x301) = misa.bits
+function clause write_CSR(0x301, value) = { misa = legalize_misa(misa, value); misa.bits }
 
-/* BitManip extension support. */
-function haveZba()  -> bool = true
-function haveZbb()  -> bool = true
-function haveZbc()  -> bool = true
-function haveZbs()  -> bool = true
+// Are supervisor/user mode currently enabled? Although
+// unlikely and not currently supported by the model,
+// you are technically allowed to have writable misa[U/S].
+function clause currentlyEnabled(Ext_U) = hartSupports(Ext_U) & misa[U] == 0b1 & currentlyEnabled(Ext_Zicsr)
+function clause currentlyEnabled(Ext_S) = hartSupports(Ext_S) & misa[S] == 0b1 & currentlyEnabled(Ext_Zicsr)
 
-/* Zfh (half-precision) extension */
-function haveZfh()  -> bool = true
+function clause currentlyEnabled(Ext_Svbare) = currentlyEnabled(Ext_S)
+function clause currentlyEnabled(Ext_Sv32) = hartSupports(Ext_Sv32) &  currentlyEnabled(Ext_S)
+function clause currentlyEnabled(Ext_Sv39) = hartSupports(Ext_Sv39) &  currentlyEnabled(Ext_S)
+function clause currentlyEnabled(Ext_Sv48) = hartSupports(Ext_Sv48) &  currentlyEnabled(Ext_S)
+function clause currentlyEnabled(Ext_Sv57) = hartSupports(Ext_Sv57) &  currentlyEnabled(Ext_S)
 
-/* Scalar Cryptography extensions support. */
-function haveZbkb() -> bool = true
-function haveZbkc() -> bool = true
-function haveZbkx() -> bool = true
-
-/* Cryptography extension support. Note these will need updating once */
-/* Sail can be dynamically configured with different extension support */
-/* and have dynamic changes of XLEN via S/UXL */
-function haveZkr()    -> bool = true
-function haveZksh()   -> bool = true
-function haveZksed()  -> bool = true
-function haveZknh()   -> bool = true
-function haveZkne()   -> bool = true
-function haveZknd()   -> bool = true
-
-function haveZmmul()  -> bool = true
-
-bitfield Mstatush : bits(32) = {
-  MBE  : 5,
-  SBE  : 4
+function virtual_memory_supported() -> bool = {
+  currentlyEnabled(Ext_Sv32) | currentlyEnabled(Ext_Sv39) | currentlyEnabled(Ext_Sv48) | currentlyEnabled(Ext_Sv57)
 }
-register mstatush : Mstatush
 
-bitfield Mstatus : xlenbits = {
+/*
+ * Illegal values legalized to least privileged mode supported.
+ * Note: the only valid combinations of supported modes are M, M+U, M+S+U.
+ */
+function lowest_supported_privLevel() -> Privilege =
+  if currentlyEnabled(Ext_U) then User else Machine
+
+function have_privLevel(priv : priv_level) -> bool =
+  match priv {
+    0b00 => currentlyEnabled(Ext_U),
+    0b01 => currentlyEnabled(Ext_S),
+    0b10 => false,
+    0b11 => true,
+  }
+
+bitfield Mstatus : bits(64) = {
   SD   : xlen - 1,
 
-  // The MBE and SBE fields are in mstatus in RV64 and absent in RV32.
-  // On RV32, they are in mstatush, which doesn't exist in RV64.  For now,
-  // they are handled in an ad-hoc way.
-  // MBE  : 37
-  // SBE  : 36
+  //MDT  : 42,
+  //MPELP: 41,
 
-  // The SXL and UXL fields don't exist on RV32, so they are modelled
-  // via explicit getters and setters; see below.
-  // SXL  : 35 .. 34,
-  // UXL  : 33 .. 32,
+  //MPV  : 39,
+  //GVA  : 38,
 
+  MBE  : 37,
+  SBE  : 36,
+
+  SXL  : 35 .. 34,
+  UXL  : 33 .. 32,
+
+  //SDT  : 24,
+  //SPELP: 23,
   TSR  : 22,
   TW   : 21,
   TVM  : 20,
@@ -239,190 +186,309 @@ bitfield Mstatus : xlenbits = {
   FS   : 14 .. 13,
 
   MPP  : 12 .. 11,
+  VS   : 10 .. 9,
   SPP  : 8,
 
   MPIE : 7,
   SPIE : 5,
-  UPIE : 4,
 
   MIE  : 3,
   SIE  : 1,
-  UIE  : 0
 }
-register mstatus : Mstatus
-
-function effectivePrivilege(t : AccessType(ext_access_type), m : Mstatus, priv : Privilege) -> Privilege =
-  if   t != Execute() & m.MPRV() == 0b1
-  then privLevel_of_bits(m.MPP())
-  else priv
 
 function get_mstatus_SXL(m : Mstatus) -> arch_xlen = {
-  if   sizeof(xlen) == 32
-  then arch_to_bits(RV32)
-  else m.bits()[35 .. 34]
-}
-
-function set_mstatus_SXL(m : Mstatus, a : arch_xlen) -> Mstatus = {
-  if   sizeof(xlen) == 32
-  then m
-  else {
-    let m = vector_update_subrange(m.bits(), 35, 34,  a);
-    Mk_Mstatus(m)
-  }
+  if   xlen == 32
+  then architecture(RV32)
+  else m[SXL]
 }
 
 function get_mstatus_UXL(m : Mstatus) -> arch_xlen = {
-  if   sizeof(xlen) == 32
-  then arch_to_bits(RV32)
-  else m.bits()[33 .. 32]
+  if   xlen == 32
+  then architecture(RV32)
+  else m[UXL]
 }
 
-function set_mstatus_UXL(m : Mstatus, a : arch_xlen) -> Mstatus = {
-  if   sizeof(xlen) == 32
-  then m
-  else {
-    let m = vector_update_subrange(m.bits(), 33, 32,  a);
-    Mk_Mstatus(m)
-  }
-}
-
-function legalize_mstatus(o : Mstatus, v : xlenbits) -> Mstatus = {
+function legalize_mstatus(o : Mstatus, v : bits(64)) -> Mstatus = {
   /*
    * Populate all defined fields using the bits of v, stripping anything
-   * that does not have a matching bitfield entry. All bits above 32 are handled
-   * explicitly later.
+   * that does not have a matching bitfield entry. The SD bits are handled
+   * explicitly later depending on xlen.
    */
-  let m : Mstatus = Mk_Mstatus(EXTZ(v[22 .. 11] @ 0b00 @ v[8 .. 7] @ 0b0 @ v[5 .. 3] @ 0b0 @ v[1 .. 0]));
+  let v = Mk_Mstatus(v);
 
-  /* We don't have any extension context yet. */
-  let m = update_XS(m, extStatus_to_bits(Off));
-
+  let o = [o with
+    // MDT = v[MDT],
+    // MPELP = v[MPELP],
+    // MPV = v[MPV],
+    // GVA = v[GVA],
+    /* We don't currently support changing MBE and SBE. */
+    // MBE = v[MBE],
+    // SBE = v[SBE],
+    /* We don't support dynamic changes to SXL and UXL. */
+    // SXL = if xlen == 64 then v[SXL] else o[SXL],
+    // UXL = if xlen == 64 then v[UXL] else o[UXL],
+    // SDT = v[SDT],
+    // SPELP = v[SPELP],
+    TSR = if currentlyEnabled(Ext_S) then v[TSR] else 0b0,
+    TW = if currentlyEnabled(Ext_U) then v[TW] else 0b0,
+    TVM = if currentlyEnabled(Ext_S) then v[TVM] else 0b0,
+    MXR = if currentlyEnabled(Ext_S) then v[MXR] else 0b0,
+    SUM = if virtual_memory_supported() then v[SUM] else 0b0,
+    MPRV = if currentlyEnabled(Ext_U) then v[MPRV] else 0b0,
+    /* We don't have any extension context yet. */
+    XS = extStatus_to_bits(Off),
   /* FS is WARL, and making FS writable can support the M-mode emulation of an FPU
    * to support code running in S/U-modes.  Spike does this, and for now, we match it,
    * but only if Zfinx isn't enabled.
    * FIXME: This should be made a platform parameter.
    */
-  let m = if sys_enable_zfinx() then update_FS(m, extStatus_to_bits(Off)) else m;
-  let dirty = extStatus_of_bits(m.FS()) == Dirty | extStatus_of_bits(m.XS()) == Dirty;
-  let m = update_SD(m, bool_to_bits(dirty));
+    FS = if hartSupports(Ext_Zfinx) then extStatus_to_bits(Off) else v[FS],
+    MPP = if have_privLevel(v[MPP]) then v[MPP] else privLevel_to_bits(lowest_supported_privLevel()),
+    SPP = if currentlyEnabled(Ext_S) then v[SPP] else 0b0,
+    VS = v[VS],
+    MPIE = v[MPIE],
+    SPIE = if currentlyEnabled(Ext_S) then v[SPIE] else 0b0,
+    MIE = v[MIE],
+    SIE = if currentlyEnabled(Ext_S) then v[SIE] else 0b0,
+  ];
 
-  /* We don't support dynamic changes to SXL and UXL. */
-  let m = set_mstatus_SXL(m, get_mstatus_SXL(o));
-  let m = set_mstatus_UXL(m, get_mstatus_UXL(o));
+  // Set dirty bit to OR of other status bits.
+  let dirty = extStatus_of_bits(o[FS]) == Dirty |
+              extStatus_of_bits(o[XS]) == Dirty |
+              extStatus_of_bits(o[VS]) == Dirty;
 
-  /* We don't currently support changing MBE and SBE. */
-  let m = if sizeof(xlen) == 64 then {
-             Mk_Mstatus([m.bits() with 37 .. 36 = 0b00])
-          } else m;
-
-  /* Hardwired to zero in the absence of 'U' or 'N'. */
-  let m = if (~ (haveNExt())) then {
-             let m = update_UPIE(m, 0b0);
-             let m = update_UIE(m, 0b0);
-             m
-          } else m;
-
-  if (~ (haveUsrMode())) then {
-    let m = update_MPRV(m, 0b0);
-    m
-  } else m
+  [o with SD = bool_to_bits(dirty)]
 }
+
+register mstatus : Mstatus = {
+  // Initialise SXL and UXL.
+  let mxl = architecture(if xlen == 32 then RV32 else RV64);
+  [ Mk_Mstatus(zeros()) with
+    // These fields do not exist on RV32 and are read-only zero
+    // if the corresponding mode is not supported.
+    SXL = if xlen != 32 & hartSupports(Ext_S) then mxl else zeros(),
+    UXL = if xlen != 32 & hartSupports(Ext_U) then mxl else zeros(),
+  ]
+}
+
+mapping clause csr_name_map = 0x300  <-> "mstatus"
+mapping clause csr_name_map = 0x310  <-> "mstatush"
+
+function clause is_CSR_defined(0x300) = true // mstatus
+function clause is_CSR_defined(0x310) = xlen == 32 // mstatush
+
+function clause read_CSR(0x300) = mstatus.bits[xlen - 1 .. 0]
+function clause read_CSR(0x310 if xlen == 32) = mstatus.bits[63 .. 32]
+
+function clause write_CSR((0x300, value) if xlen == 64) = { mstatus = legalize_mstatus(mstatus, value); mstatus.bits }
+function clause write_CSR((0x300, value) if xlen == 32) = { mstatus = legalize_mstatus(mstatus, mstatus.bits[63 .. 32] @ value); mstatus.bits[31 .. 0] }
+function clause write_CSR((0x310, value) if xlen == 32) = { mstatus = legalize_mstatus(mstatus, value @ mstatus.bits[31 .. 0]); mstatus.bits[63 .. 32] }
 
 /* architecture and extension checks */
 
-function cur_Architecture() -> Architecture = {
+function cur_architecture() -> Architecture = {
   let a : arch_xlen =
-    match (cur_privilege) {
-      Machine    => misa.MXL(),
+    match cur_privilege {
+      Machine    => misa[MXL],
       Supervisor => get_mstatus_SXL(mstatus),
       User       => get_mstatus_UXL(mstatus)
     };
-  match architecture(a) {
-    Some(a) => a,
-    None()  => internal_error("Invalid current architecture")
-  }
+  architecture(a)
 }
 
 function in32BitMode() -> bool = {
-  cur_Architecture() == RV32
+  cur_architecture() == RV32
 }
 
-/* F and D extensions have to enabled both via misa.{FD} as well as mstatus.FS */
-function haveFExt()    -> bool = (misa.F() == 0b1) & (mstatus.FS() != 0b00)
-function haveDExt()    -> bool = (misa.D() == 0b1) & (mstatus.FS() != 0b00)
+bitfield Seccfg : bits(64) = {
+  // Enable access to SEED in S-mode
+  SSEED  : 9,
+  // Enable access to SEED in U-mode
+  USEED  : 8,
+}
 
-/* Zfinx and Zdinx extensions (TODO: gate FCSR access on [mhs]stateen0 bit 1 when implemented) */
-function haveZfinx()   -> bool = sys_enable_zfinx()
-function haveZdinx()   -> bool = sys_enable_zfinx() & sizeof(flen) >= 64
+function legalize_mseccfg(o : Seccfg, v : bits(64)) -> Seccfg = {
+  let sseed_read_only_zero =
+      (config extensions.Zkr.sseed_read_only_zero : bool)
+    | not(currentlyEnabled(Ext_S))
+    | not(currentlyEnabled(Ext_Zkr));
+  let useed_read_only_zero =
+      (config extensions.Zkr.useed_read_only_zero : bool)
+    | not(currentlyEnabled(Ext_U))
+    | not(currentlyEnabled(Ext_Zkr));
+
+  let v = Mk_Seccfg(v);
+  [o with
+    SSEED = if sseed_read_only_zero then 0b0 else v[SSEED],
+    USEED = if useed_read_only_zero then 0b0 else v[USEED],
+  ]
+}
+
+register mseccfg : Seccfg = legalize_mseccfg(Mk_Seccfg(zeros()), zeros())
+
+mapping clause csr_name_map = 0x747  <-> "mseccfg"
+mapping clause csr_name_map = 0x757  <-> "mseccfgh"
+
+// "mseccfg exists if Zkr is implemented, or if it is required by other processor features."
+function clause is_CSR_defined(0x747) = currentlyEnabled(Ext_Zkr) // mseccfg
+function clause is_CSR_defined(0x757) = currentlyEnabled(Ext_Zkr) & xlen == 32 // mseccfgh
+
+function clause read_CSR(0x747) = mseccfg.bits[xlen - 1 .. 0]
+function clause read_CSR(0x757 if xlen == 32) = mseccfg.bits[63 .. 32]
+
+function clause write_CSR((0x747, value) if xlen == 32) = {
+  mseccfg = legalize_mseccfg(mseccfg, mseccfg.bits[63 .. 32] @ value);
+  mseccfg.bits[31 .. 0]
+}
+function clause write_CSR((0x747, value) if xlen == 64) = {
+  mseccfg = legalize_mseccfg(mseccfg, value);
+  mseccfg.bits
+}
+function clause write_CSR((0x757, value) if xlen == 32) = {
+  mseccfg = legalize_mseccfg(mseccfg, value @ mseccfg.bits[31 .. 0]);
+  mseccfg.bits[63 .. 32]
+}
+
+
+// envcfg Resisters
+bitfield MEnvcfg : bits(64) = {
+  // Supervisor TimeCmp Extension
+  STCE   : 63,
+  // Page Based Memory Types Extension
+  PBMTE  : 62,
+  // Reserved WPRI bits.
+  wpri_1 : 61 .. 8,
+  // Cache Block Zero instruction Enable
+  CBZE   : 7,
+  // Cache Block Clean and Flush instruction Enable
+  CBCFE  : 6,
+  // Cache Block Invalidate instruction Enable
+  CBIE   : 5 .. 4,
+  // Reserved WPRI bits.
+  wpri_0 : 3 .. 1,
+  // Fence of I/O implies Memory
+  FIOM   : 0,
+}
+
+bitfield SEnvcfg : xlenbits = {
+  // Cache Block Zero instruction Enable
+  CBZE   : 7,
+  // Cache Block Clean and Flush instruction Enable
+  CBCFE  : 6,
+  // Cache Block Invalidate instruction Enable
+  CBIE   : 5 .. 4,
+  // Reserved WPRI bits.
+  wpri_0 : 3 .. 1,
+  // Fence of I/O implies Memory
+  FIOM   : 0,
+}
+
+function legalize_menvcfg(o : MEnvcfg, v : bits(64)) -> MEnvcfg = {
+  let v = Mk_MEnvcfg(v);
+  [o with
+    FIOM = if sys_enable_writable_fiom then v[FIOM] else 0b0,
+    CBZE = if currentlyEnabled(Ext_Zicboz) then v[CBZE] else 0b0,
+    CBCFE = if currentlyEnabled(Ext_Zicbom) then v[CBCFE] else 0b0,
+    CBIE = if currentlyEnabled(Ext_Zicbom) then (if v[CBIE] != 0b10 then v[CBIE] else 0b00) else 0b00,
+    STCE = if currentlyEnabled(Ext_Sstc) then v[STCE] else 0b0,
+    // Other extensions are not implemented yet so all other fields are read only zero.
+  ]
+}
+
+function legalize_senvcfg(o : SEnvcfg, v : xlenbits) -> SEnvcfg = {
+  let v = Mk_SEnvcfg(v);
+  [o with
+    FIOM = if sys_enable_writable_fiom then v[FIOM] else 0b0,
+    CBZE = if currentlyEnabled(Ext_Zicboz) then v[CBZE] else 0b0,
+    CBCFE = if currentlyEnabled(Ext_Zicbom) then v[CBCFE] else 0b0,
+    CBIE = if currentlyEnabled(Ext_Zicbom) then (if v[CBIE] != 0b10 then v[CBIE] else 0b00) else 0b00,
+    // Other extensions are not implemented yet so all other fields are read only zero.
+  ]
+}
+
+// Initialised to legal values in case some bits are hard-coded to 1.
+register menvcfg : MEnvcfg = legalize_menvcfg(Mk_MEnvcfg(zeros()), zeros())
+register senvcfg : SEnvcfg = legalize_senvcfg(Mk_SEnvcfg(zeros()), zeros())
+
+mapping clause csr_name_map = 0x30A  <-> "menvcfg"
+mapping clause csr_name_map = 0x31A  <-> "menvcfgh"
+mapping clause csr_name_map = 0x10A  <-> "senvcfg"
+
+function clause is_CSR_defined(0x30A) = currentlyEnabled(Ext_U) // menvcfg
+function clause is_CSR_defined(0x31A) = currentlyEnabled(Ext_U) & (xlen == 32) // menvcfgh
+function clause is_CSR_defined(0x10A) = currentlyEnabled(Ext_S) // senvcfg
+
+function clause read_CSR(0x30A) = menvcfg.bits[xlen - 1 .. 0]
+function clause read_CSR(0x31A if xlen == 32) = menvcfg.bits[63 .. 32]
+function clause read_CSR(0x10A) = senvcfg.bits[xlen - 1 .. 0]
+
+function clause write_CSR((0x30A, value) if xlen == 32) = { menvcfg = legalize_menvcfg(menvcfg, menvcfg.bits[63 .. 32] @ value); menvcfg.bits[31 .. 0] }
+function clause write_CSR((0x30A, value) if xlen == 64) = { menvcfg = legalize_menvcfg(menvcfg, value); menvcfg.bits }
+function clause write_CSR((0x31A, value) if xlen == 32) = { menvcfg = legalize_menvcfg(menvcfg, value @ menvcfg.bits[31 .. 0]); menvcfg.bits[63 .. 32] }
+function clause write_CSR(0x10A, value) = { senvcfg = legalize_senvcfg(senvcfg, zero_extend(value)); senvcfg.bits[xlen - 1 .. 0] }
+
+// Return whether or not FIOM is currently active, based on the current
+// privilege and the menvcfg/senvcfg settings. This means that I/O fences
+// imply memory fence.
+function is_fiom_active() -> bool = {
+  match cur_privilege {
+    Machine => false,
+    Supervisor => menvcfg[FIOM] == 0b1,
+    User => (menvcfg[FIOM] | senvcfg[FIOM]) == 0b1,
+  }
+}
 
 /* interrupt processing state */
 
 bitfield Minterrupts : xlenbits = {
   MEI : 11, /* external interrupts */
   SEI : 9,
-  UEI : 8,
 
   MTI : 7,  /* timers interrupts */
   STI : 5,
-  UTI : 4,
 
   MSI : 3,  /* software interrupts */
   SSI : 1,
-  USI : 0,
 }
-register mip     : Minterrupts /* Pending */
-register mie     : Minterrupts /* Enabled */
-register mideleg : Minterrupts /* Delegation to S-mode */
 
 function legalize_mip(o : Minterrupts, v : xlenbits) -> Minterrupts = {
-  /* The only writable bits are the S-mode bits, and with the 'N'
-   * extension, the U-mode bits. */
+  // The only writable bits are the S-mode bits.
   let v = Mk_Minterrupts(v);
-  let m = update_SEI(o, v.SEI());
-  let m = update_STI(m, v.STI());
-  let m = update_SSI(m, v.SSI());
-  if haveUsrMode() & haveNExt() then {
-    let m = update_UEI(m, v.UEI());
-    let m = update_UTI(m, v.UTI());
-    let m = update_USI(m, v.USI());
-    m
-  } else m
+  [o with
+    SEI = if currentlyEnabled(Ext_S) then v[SEI] else 0b0,
+    SSI = if currentlyEnabled(Ext_S) then v[SSI] else 0b0,
+    STI = if currentlyEnabled(Ext_S) then (
+      // STI is read only if Sstc is enabled and STCE is set (it is equal to stimecmp <= mtime).
+      if currentlyEnabled(Ext_Sstc) & menvcfg[STCE] == 0b1 then o[STI] else v[STI]
+    ) else 0b0,
+  ]
 }
 
 function legalize_mie(o : Minterrupts, v : xlenbits) -> Minterrupts = {
   let v = Mk_Minterrupts(v);
-  let m = update_MEI(o, v.MEI());
-  let m = update_MTI(m, v.MTI());
-  let m = update_MSI(m, v.MSI());
-  let m = update_SEI(m, v.SEI());
-  let m = update_STI(m, v.STI());
-  let m = update_SSI(m, v.SSI());
-  /* The U-mode bits will be modified if we have the 'N' extension. */
-  if haveUsrMode() & haveNExt() then {
-    let m = update_UEI(m, v.UEI());
-    let m = update_UTI(m, v.UTI());
-    let m = update_USI(m, v.USI());
-    m
-  } else m
+  [o with
+    MEI = v[MEI],
+    MTI = v[MTI],
+    MSI = v[MSI],
+    SEI = if currentlyEnabled(Ext_S) then v[SEI] else 0b0,
+    STI = if currentlyEnabled(Ext_S) then v[STI] else 0b0,
+    SSI = if currentlyEnabled(Ext_S) then v[SSI] else 0b0,
+  ]
 }
 
 function legalize_mideleg(o : Minterrupts, v : xlenbits) -> Minterrupts = {
   /* M-mode interrupt delegation bits "should" be hardwired to 0. */
   /* FIXME: needs verification against eventual spec language. */
-  let m = Mk_Minterrupts(v);
-  let m = update_MEI(m, 0b0);
-  let m = update_MTI(m, 0b0);
-  let m = update_MSI(m, 0b0);
-  m
+  [Mk_Minterrupts(v) with MEI = 0b0, MTI = 0b0, MSI = 0b0]
 }
 
 /* exception processing state */
 
-bitfield Medeleg : xlenbits = {
+bitfield Medeleg : bits(64) = {
   SAMO_Page_Fault   : 15,
   Load_Page_Fault   : 13,
   Fetch_Page_Fault  : 12,
-  MEnvCall          : 10,
+  MEnvCall          : 11,
   SEnvCall          : 9,
   UEnvCall          : 8,
   SAMO_Access_Fault : 7,
@@ -434,14 +500,41 @@ bitfield Medeleg : xlenbits = {
   Fetch_Access_Fault: 1,
   Fetch_Addr_Align  : 0
 }
-register medeleg : Medeleg  /* Delegation to S-mode */
 
-function legalize_medeleg(o : Medeleg, v : xlenbits) -> Medeleg = {
-  let m = Mk_Medeleg(v);
+function legalize_medeleg(o : Medeleg, v : bits(64)) -> Medeleg = {
   /* M-EnvCalls delegation is not supported */
-  let m = update_MEnvCall(m, 0b0);
-  m
+  [Mk_Medeleg(v) with MEnvCall = 0b0]
 }
+
+register mie     : Minterrupts /* Enabled */
+register mip     : Minterrupts /* Pending */
+register medeleg : Medeleg     /* Exception delegation to S-mode */
+register mideleg : Minterrupts /* Interrupt delegation to S-mode */
+
+mapping clause csr_name_map = 0x304  <-> "mie"
+mapping clause csr_name_map = 0x344  <-> "mip"
+mapping clause csr_name_map = 0x302  <-> "medeleg"
+mapping clause csr_name_map = 0x312  <-> "medelegh"
+mapping clause csr_name_map = 0x303  <-> "mideleg"
+
+function clause is_CSR_defined(0x304) = true // mie
+function clause is_CSR_defined(0x344) = true // mip
+function clause is_CSR_defined(0x302) = currentlyEnabled(Ext_S) // medeleg
+function clause is_CSR_defined(0x312) = currentlyEnabled(Ext_S) & xlen == 32 // medelegh
+function clause is_CSR_defined(0x303) = currentlyEnabled(Ext_S) // mideleg
+
+function clause read_CSR(0x304) = mie.bits
+function clause read_CSR(0x344) = mip.bits
+function clause read_CSR(0x302) = medeleg.bits[xlen - 1 .. 0]
+function clause read_CSR(0x312 if xlen == 32) = medeleg.bits[63 .. 32]
+function clause read_CSR(0x303) = mideleg.bits
+
+function clause write_CSR(0x304, value) = { mie = legalize_mie(mie, value); mie.bits }
+function clause write_CSR(0x344, value) = { mip = legalize_mip(mip, value); mip.bits }
+function clause write_CSR((0x302, value) if xlen == 64) = { medeleg = legalize_medeleg(medeleg, value); medeleg.bits }
+function clause write_CSR((0x302, value) if xlen == 32) = { medeleg = legalize_medeleg(medeleg, medeleg.bits[63 .. 32] @ value); medeleg.bits[31 .. 0] }
+function clause write_CSR((0x312, value) if xlen == 32) = { medeleg = legalize_medeleg(medeleg, value @ medeleg.bits[31 .. 0]); medeleg.bits[63 .. 32] }
+function clause write_CSR(0x303, value) = { mideleg = legalize_mideleg(mideleg, value); mideleg.bits }
 
 /* registers for trap handling */
 
@@ -453,10 +546,10 @@ register mtvec : Mtvec  /* Trap Vector */
 
 function legalize_tvec(o : Mtvec, v : xlenbits) -> Mtvec = {
  let v = Mk_Mtvec(v);
- match (trapVectorMode_of_bits(v.Mode())) {
+ match (trapVectorMode_of_bits(v[Mode])) {
    TV_Direct => v,
    TV_Vector => v,
-   _         => update_Mode(v, o.Mode())
+   _         => [v with Mode = o[Mode]]
  }
 }
 
@@ -465,14 +558,18 @@ bitfield Mcause : xlenbits = {
   Cause       : xlen - 2 .. 0
 }
 register mcause : Mcause
+mapping clause csr_name_map = 0x342  <-> "mcause"
+function clause is_CSR_defined(0x342) = true // mcause
+function clause read_CSR(0x342) = mcause.bits
+function clause write_CSR(0x342, value) = { mcause.bits = value; mcause.bits }
 
 /* Interpreting the trap-vector address */
 function tvec_addr(m : Mtvec, c : Mcause) -> option(xlenbits) = {
-  let base : xlenbits = m.Base() @ 0b00;
-  match (trapVectorMode_of_bits(m.Mode())) {
+  let base : xlenbits = m[Base] @ 0b00;
+  match (trapVectorMode_of_bits(m[Mode])) {
     TV_Direct => Some(base),
-    TV_Vector => if   c.IsInterrupt() == 0b1
-                 then Some(base + (EXTZ(c.Cause()) << 2))
+    TV_Vector => if   c[IsInterrupt] == 0b1
+                 then Some(base + (zero_extend(c[Cause]) << 2))
                  else Some(base),
     TV_Reserved => None()
   }
@@ -482,24 +579,38 @@ function tvec_addr(m : Mtvec, c : Mcause) -> option(xlenbits) = {
 
 register mepc : xlenbits
 
-/* The xepc legalization zeroes xepc[1:0] when misa.C is hardwired to 0.
- * When misa.C is writable, it zeroes only xepc[0].
- */
-function legalize_xepc(v : xlenbits) -> xlenbits =
-  /* allow writing xepc[1] only if misa.C is enabled or could be enabled 
-     XXX specification says this legalization should be done on read */
-  if   (sys_enable_writable_misa() & sys_enable_rvc()) | misa.C() == 0b1
+// The xepc legalization zeroes xepc[1:0] when Zca is not supported.
+// When Zca is supported (whether it is enabled or not), it zeroes only xepc[0].
+function legalize_xepc(v : xlenbits) -> xlenbits = {
+  if   hartSupports(Ext_Zca)
   then [v with 0 = bitzero]
-  else v & EXTS(0b100)
+  else [v with 1..0 = zeros()]
+}
 
-/* masking for reads to xepc */
-function pc_alignment_mask() -> xlenbits =
-  ~(EXTZ(if misa.C() == 0b1 then 0b00 else 0b10))
+// Align value to min supported PC alignment. This is used to
+// legalize xepc reads.
+function align_pc(addr : xlenbits) -> xlenbits = {
+  if currentlyEnabled(Ext_Zca)
+  then [addr with 0 = bitzero]
+  else [addr with 1..0 = zeros()]
+}
 
 /* auxiliary exception registers */
 
 register mtval    : xlenbits
 register mscratch : xlenbits
+
+mapping clause csr_name_map = 0x343  <-> "mtval"
+mapping clause csr_name_map = 0x340  <-> "mscratch"
+
+function clause is_CSR_defined(0x343) = true // mtval
+function clause is_CSR_defined(0x340) = true // mscratch
+
+function clause read_CSR(0x343) = mtval
+function clause read_CSR(0x340) = mscratch
+
+function clause write_CSR(0x343, value) = { mtval = value; mtval }
+function clause write_CSR(0x340, value) = { mscratch = value; mscratch }
 
 /* counters */
 
@@ -510,37 +621,49 @@ bitfield Counteren : bits(32) = {
   CY   : 0
 }
 
-register mcounteren : Counteren
-register scounteren : Counteren
-
-function legalize_mcounteren(c : Counteren, v : xlenbits) -> Counteren = {
-  /* no HPM counters yet */
-  let c = update_IR(c, [v[2]]);
-  let c = update_TM(c, [v[1]]);
-  let c = update_CY(c, [v[0]]);
-  c
-}
-
+// scounteren
 function legalize_scounteren(c : Counteren, v : xlenbits) -> Counteren = {
-  /* no HPM counters yet */
-  let c = update_IR(c, [v[2]]);
-  let c = update_TM(c, [v[1]]);
-  let c = update_CY(c, [v[0]]);
-  c
+  let supported_counters = sys_writable_hpm_counters[31 .. 3] @ 0b111;
+  Mk_Counteren(v[31 .. 0] & supported_counters)
 }
 
+register scounteren : Counteren
+mapping clause csr_name_map = 0x106  <-> "scounteren"
+function clause is_CSR_defined(0x106) = currentlyEnabled(Ext_S) // scounteren
+function clause read_CSR(0x106) = zero_extend(scounteren.bits)
+function clause write_CSR(0x106, value) = { scounteren = legalize_scounteren(scounteren, value); zero_extend(scounteren.bits) }
+
+// mcounteren
+function legalize_mcounteren(c : Counteren, v : xlenbits) -> Counteren = {
+  let supported_counters = sys_writable_hpm_counters[31 .. 3] @ 0b111;
+  Mk_Counteren(v[31 .. 0] & supported_counters)
+}
+
+register mcounteren : Counteren
+mapping clause csr_name_map = 0x306  <-> "mcounteren"
+function clause is_CSR_defined(0x306) = currentlyEnabled(Ext_U) // mcounteren
+function clause read_CSR(0x306) = zero_extend(mcounteren.bits)
+function clause write_CSR(0x306, value) = { mcounteren = legalize_mcounteren(mcounteren, value); zero_extend(mcounteren.bits) }
+
+
+// mcountinhibit
 bitfield Counterin : bits(32) = {
-  /* no HPM counters yet */
+  HPM  : 31 .. 3,
   IR : 2,
   CY : 0
 }
-register mcountinhibit : Counterin
 
 function legalize_mcountinhibit(c : Counterin, v : xlenbits) -> Counterin = {
-  let c = update_IR(c, [v[2]]);
-  let c = update_CY(c, [v[0]]);
-  c
+  // Note the 0 in 0b101 is because the mtimer counter can't be paused.
+  let supported_counters = sys_writable_hpm_counters[31 .. 3] @ 0b101;
+  Mk_Counterin(v[31 .. 0] & supported_counters)
 }
+
+register mcountinhibit : Counterin
+mapping clause csr_name_map = 0x320  <-> "mcountinhibit"
+function clause is_CSR_defined(0x320) = true // mcountinhibit
+function clause read_CSR(0x320) = zero_extend(mcountinhibit.bits)
+function clause write_CSR(0x320, value) = { mcountinhibit = legalize_mcountinhibit(mcountinhibit, value); zero_extend(mcountinhibit.bits) }
 
 register mcycle : bits(64)
 register mtime : bits(64)
@@ -553,182 +676,178 @@ register mtime : bits(64)
  * simulation loop, we need to execute an instruction to find out
  * whether it retired, and hence can only increment instret after
  * execution.  To avoid doing this in the case minstret was explicitly
- * written to, we track writes to it in a separate model-internal
- * register.
+ * written to, we track whether it should increment in a separate
+ * model-internal register.
  */
 register minstret : bits(64)
-register minstret_written : bool
 
-function retire_instruction() -> unit = {
-  if   minstret_written == true
-  then minstret_written = false
-  else if mcountinhibit.IR() == 0b0
-       then minstret = minstret + 1
-}
+/* Should minstret be incremented when the instruction is retired. */
+register minstret_increment : bool
 
-/* informational registers */
-register mvendorid : bits(32)
-register mimpid : xlenbits
-register marchid : xlenbits
-/* TODO: this should be readonly, and always 0 for now */
-register mhartid : xlenbits
+/* machine information registers */
+register mvendorid : bits(32) = to_bits_checked(config platform.vendorid : int)
+register mimpid    : xlenbits = to_bits_checked(config platform.impid : int)
+register marchid   : xlenbits = to_bits_checked(config platform.archid : int)
+register mhartid   : xlenbits = to_bits_checked(config platform.hartid : int)
+
+register mconfigptr : xlenbits = zeros()
+
+mapping clause csr_name_map = 0xF11  <-> "mvendorid"
+mapping clause csr_name_map = 0xF12  <-> "marchid"
+mapping clause csr_name_map = 0xF13  <-> "mimpid"
+mapping clause csr_name_map = 0xF14  <-> "mhartid"
+mapping clause csr_name_map = 0xF15  <-> "mconfigptr"
+
+function clause is_CSR_defined(0xf11) = true // mvendorid
+function clause is_CSR_defined(0xf12) = true // marchdid
+function clause is_CSR_defined(0xf13) = true // mimpid
+function clause is_CSR_defined(0xf14) = true // mhartid
+function clause is_CSR_defined(0xf15) = true // mconfigptr
+
+function clause read_CSR(0xF11) = zero_extend(mvendorid)
+function clause read_CSR(0xF12) = marchid
+function clause read_CSR(0xF13) = mimpid
+function clause read_CSR(0xF14) = mhartid
+function clause read_CSR(0xF15) = mconfigptr
 
 /* S-mode registers */
 
 /* sstatus reveals a subset of mstatus */
-bitfield Sstatus : xlenbits = {
-  SD   : xlen - 1,
-  // The UXL field does not exist on RV32, so we define an explicit
-  // getter and setter below.
-  // UXL  : 30 .. 29,
-  MXR  : 19,
-  SUM  : 18,
-  XS   : 16 .. 15,
-  FS   : 14 .. 13,
-  SPP  : 8,
-  SPIE : 5,
-  UPIE : 4,
-  SIE  : 1,
-  UIE  : 0
+bitfield Sstatus : bits(64) = {
+  SD    : xlen - 1,
+
+  UXL   : 33 .. 32,
+//  SDT   : 24,
+//  SPELP : 23,
+  MXR   : 19,
+  SUM   : 18,
+  XS    : 16 .. 15,
+  FS    : 14 .. 13,
+  VS    : 10 .. 9,
+  SPP   : 8,
+  SPIE  : 5,
+  SIE   : 1,
 }
 /* sstatus is a view of mstatus, so there is no register defined. */
 
-function get_sstatus_UXL(s : Sstatus) -> arch_xlen = {
-  let m = Mk_Mstatus(s.bits());
-  get_mstatus_UXL(m)
-}
-
-function set_sstatus_UXL(s : Sstatus, a : arch_xlen) -> Sstatus = {
-  let m = Mk_Mstatus(s.bits());
-  let m = set_mstatus_UXL(m, a);
-  Mk_Sstatus(m.bits())
-}
-
 function lower_mstatus(m : Mstatus) -> Sstatus = {
-  let s = Mk_Sstatus(EXTZ(0b0));
-  let s = update_SD(s, m.SD());
-  let s = set_sstatus_UXL(s, get_mstatus_UXL(m));
-  let s = update_MXR(s, m.MXR());
-  let s = update_SUM(s, m.SUM());
-  let s = update_XS(s, m.XS());
-  let s = update_FS(s, m.FS());
-  let s = update_SPP(s, m.SPP());
-  let s = update_SPIE(s, m.SPIE());
-  let s = update_UPIE(s, m.UPIE());
-  let s = update_SIE(s, m.SIE());
-  let s = update_UIE(s, m.UIE());
-  s
+  let s = Mk_Sstatus(zeros());
+
+  [s with
+    SD = m[SD],
+    UXL = m[UXL],
+    //SDT = m[SDT],
+    //SPELP = m[SPELP],
+    MXR = m[MXR],
+    SUM = m[SUM],
+    XS = m[XS],
+    FS = m[FS],
+    VS = m[VS],
+    SPP = m[SPP],
+    SPIE = m[SPIE],
+    SIE = m[SIE],
+  ]
 }
 
 function lift_sstatus(m : Mstatus, s : Sstatus) -> Mstatus = {
-  let m = update_MXR(m, s.MXR());
-  let m = update_SUM(m, s.SUM());
+  let dirty = extStatus_of_bits(s[FS]) == Dirty | extStatus_of_bits(s[XS]) == Dirty |
+              extStatus_of_bits(s[VS]) == Dirty;
 
-  let m = update_XS(m, s.XS());
-  // See comment for mstatus.FS.
-  let m = update_FS(m, s.FS());
-  let dirty = extStatus_of_bits(m.FS()) == Dirty | extStatus_of_bits(m.XS()) == Dirty;
-  let m = update_SD(m, bool_to_bits(dirty));
-
-  let m = update_SPP(m, s.SPP());
-  let m = update_SPIE(m, s.SPIE());
-  let m = update_UPIE(m, s.UPIE());
-  let m = update_SIE(m, s.SIE());
-  let m = update_UIE(m, s.UIE());
-  m
+  [m with
+    SD = bool_to_bits(dirty),
+    UXL = s[UXL],
+    //SDT = s[SDT],
+    //SPELP = s[SPELP],
+    MXR = s[MXR],
+    SUM = s[SUM],
+    XS = s[XS],
+    FS = s[FS],
+    VS = s[VS],
+    SPP = s[SPP],
+    SPIE = s[SPIE],
+    SIE = s[SIE],
+  ]
 }
 
 function legalize_sstatus(m : Mstatus, v : xlenbits) -> Mstatus = {
-  legalize_mstatus(m, lift_sstatus(m, Mk_Sstatus(v)).bits())
+  legalize_mstatus(m, lift_sstatus(m, Mk_Sstatus(zero_extend(v))).bits)
 }
 
-bitfield Sedeleg : xlenbits = {
-  UEnvCall          : 8,
-  SAMO_Access_Fault : 7,
-  SAMO_Addr_Align   : 6,
-  Load_Access_Fault : 5,
-  Load_Addr_Align   : 4,
-  Breakpoint        : 3,
-  Illegal_Instr     : 2,
-  Fetch_Access_Fault: 1,
-  Fetch_Addr_Align  : 0
-}
-register sedeleg : Sedeleg
+mapping clause csr_name_map = 0x100  <-> "sstatus"
+function clause is_CSR_defined(0x100) = currentlyEnabled(Ext_S) // sstatus
+function clause read_CSR(0x100) = lower_mstatus(mstatus).bits[xlen - 1 .. 0]
+function clause write_CSR(0x100, value) = { mstatus = legalize_sstatus(mstatus, value); lower_mstatus(mstatus).bits[xlen - 1 .. 0] }
 
-function legalize_sedeleg(s : Sedeleg, v : xlenbits) -> Sedeleg = {
-  Mk_Sedeleg(EXTZ(v[8..0]))
-}
 
 bitfield Sinterrupts : xlenbits = {
   SEI : 9,  /* external interrupts */
-  UEI : 8,
 
   STI : 5,  /* timers interrupts */
-  UTI : 4,
 
   SSI : 1,  /* software interrupts */
-  USI : 0
 }
 
+// sip
 /* Provides the sip read view of mip (m) as delegated by mideleg (d). */
 function lower_mip(m : Minterrupts, d : Minterrupts) -> Sinterrupts = {
-  let s : Sinterrupts = Mk_Sinterrupts(EXTZ(0b0));
-  let s = update_SEI(s, m.SEI() & d.SEI());
-  let s = update_STI(s, m.STI() & d.STI());
-  let s = update_SSI(s, m.SSI() & d.SSI());
+  let s : Sinterrupts = Mk_Sinterrupts(zeros());
 
-  let s = update_UEI(s, m.UEI() & d.UEI());
-  let s = update_UTI(s, m.UTI() & d.UTI());
-  let s = update_USI(s, m.USI() & d.USI());
-  s
+  [s with
+    SEI = m[SEI] & d[SEI],
+    STI = m[STI] & d[STI],
+    SSI = m[SSI] & d[SSI],
+  ]
 }
 
 /* Provides the sie read view of mie (m) as delegated by mideleg (d). */
 function lower_mie(m : Minterrupts, d : Minterrupts) -> Sinterrupts = {
-  let s : Sinterrupts = Mk_Sinterrupts(EXTZ(0b0));
-  let s = update_SEI(s, m.SEI() & d.SEI());
-  let s = update_STI(s, m.STI() & d.STI());
-  let s = update_SSI(s, m.SSI() & d.SSI());
-  let s = update_UEI(s, m.UEI() & d.UEI());
-  let s = update_UTI(s, m.UTI() & d.UTI());
-  let s = update_USI(s, m.USI() & d.USI());
-  s
+  let s : Sinterrupts = Mk_Sinterrupts(zeros());
+
+  [s with
+    SEI = m[SEI] & d[SEI],
+    STI = m[STI] & d[STI],
+    SSI = m[SSI] & d[SSI],
+  ]
 }
 
 /* Returns the new value of mip from the previous mip (o) and the written sip (s) as delegated by mideleg (d). */
 function lift_sip(o : Minterrupts, d : Minterrupts, s : Sinterrupts) -> Minterrupts = {
   let m : Minterrupts = o;
-  let m = if d.SSI() == 0b1 then update_SSI(m, s.SSI()) else m;
-  if haveNExt() then {
-    let m = if d.UEI() == 0b1 then update_UEI(m, s.UEI()) else m;
-    let m = if d.USI() == 0b1 then update_USI(m, s.USI()) else m;
-    m
-  } else m
+  let m = if d[SSI] == 0b1 then [m with SSI = s[SSI]] else m;
+  m
 }
 
 function legalize_sip(m : Minterrupts, d : Minterrupts, v : xlenbits) -> Minterrupts = {
   lift_sip(m, d, Mk_Sinterrupts(v))
 }
 
+mapping clause csr_name_map = 0x144  <-> "sip"
+function clause is_CSR_defined(0x144) = currentlyEnabled(Ext_S) // sip
+function clause read_CSR(0x144) = lower_mip(mip, mideleg).bits
+function clause write_CSR(0x144, value) = { mip = legalize_sip(mip, mideleg, value); lower_mip(mip, mideleg).bits }
+
+
+// sie
 /* Returns the new value of mie from the previous mie (o) and the written sie (s) as delegated by mideleg (d). */
 function lift_sie(o : Minterrupts, d : Minterrupts, s : Sinterrupts) -> Minterrupts = {
   let m : Minterrupts = o;
-  let m = if d.SEI() == 0b1 then update_SEI(m, s.SEI()) else m;
-  let m = if d.STI() == 0b1 then update_STI(m, s.STI()) else m;
-  let m = if d.SSI() == 0b1 then update_SSI(m, s.SSI()) else m;
-  if haveNExt() then {
-    let m = if d.UEI() == 0b1 then update_UEI(m, s.UEI()) else m;
-    let m = if d.UTI() == 0b1 then update_UTI(m, s.UTI()) else m;
-    let m = if d.USI() == 0b1 then update_USI(m, s.USI()) else m;
-    m
-  } else m
+  [m with
+    SEI = if d[SEI] == 0b1 then s[SEI] else m[SEI],
+    STI = if d[STI] == 0b1 then s[STI] else m[STI],
+    SSI = if d[SSI] == 0b1 then s[SSI] else m[SSI],
+  ]
 }
 
 function legalize_sie(m : Minterrupts, d : Minterrupts, v : xlenbits) -> Minterrupts = {
   lift_sie(m, d, Mk_Sinterrupts(v))
 }
 
-register sideleg : Sinterrupts
+
+mapping clause csr_name_map = 0x104  <-> "sie"
+function clause is_CSR_defined(0x104) = currentlyEnabled(Ext_S) // sie
+function clause read_CSR(0x104) = lower_mie(mie, mideleg).bits
+function clause write_CSR(0x104, value) = { mie = legalize_sie(mie, mideleg, value); lower_mie(mie, mideleg).bits }
+
 
 /* other non-VM related supervisor state */
 register stvec    : Mtvec
@@ -736,6 +855,22 @@ register sscratch : xlenbits
 register sepc     : xlenbits
 register scause   : Mcause
 register stval    : xlenbits
+
+mapping clause csr_name_map = 0x140  <-> "sscratch"
+mapping clause csr_name_map = 0x142  <-> "scause"
+mapping clause csr_name_map = 0x143  <-> "stval"
+
+function clause is_CSR_defined(0x140) = currentlyEnabled(Ext_S) // sscratch
+function clause is_CSR_defined(0x142) = currentlyEnabled(Ext_S) // scause
+function clause is_CSR_defined(0x143) = currentlyEnabled(Ext_S) // stval
+
+function clause read_CSR(0x140) = sscratch
+function clause read_CSR(0x142) = scause.bits
+function clause read_CSR(0x143) = stval
+
+function clause write_CSR(0x140, value) = { sscratch = value; sscratch }
+function clause write_CSR(0x142, value) = { scause.bits = value; scause.bits }
+function clause write_CSR(0x143, value) = { stval = value; stval }
 
 /*
  * S-mode address translation and protection (satp) layout.
@@ -748,78 +883,154 @@ bitfield Satp64 : bits(64) = {
   PPN  : 43 .. 0
 }
 
-function legalize_satp64(a : Architecture, o : bits(64), v : bits(64)) -> bits(64) = {
-  let s = Mk_Satp64(v);
-  match satp64Mode_of_bits(a, s.Mode()) {
-    None()     => o,
-    Some(Sv32) => o,  /* Sv32 is unsupported for now */
-    Some(_)    => s.bits()
-  }
-}
-
 bitfield Satp32 : bits(32) = {
   Mode : 31,
   Asid : 30 .. 22,
   PPN  : 21 .. 0
 }
 
-function legalize_satp32(a : Architecture, o : bits(32), v : bits(32)) -> bits(32) = {
-  /* all 32-bit satp modes are valid */
-  v
+// TODO: This currently assumes all ASID bits are implemented
+// and does not legalize the asid field if asidlen is not the maximum.
+function legalize_satp(
+  arch : Architecture,
+  prev_value : xlenbits,
+  written_value : xlenbits,
+) -> xlenbits = {
+  if xlen == 32 then {
+    let s = Mk_Satp32(written_value);
+    match satpMode_of_bits(arch, 0b000 @ s[Mode]) {
+      None()  => prev_value,
+      Some(Sv_mode) => match Sv_mode {
+        Bare if currentlyEnabled(Ext_Svbare) => s.bits,
+        Sv32 if currentlyEnabled(Ext_Sv32) => s.bits,
+        _ => prev_value,
+      }
+    }
+  } else if xlen == 64 then {
+    let s = Mk_Satp64(written_value);
+    match satpMode_of_bits(arch, s[Mode]) {
+      None()  => prev_value,
+      Some(Sv_mode) =>  match Sv_mode {
+        Bare if currentlyEnabled(Ext_Svbare) => s.bits,
+        Sv39 if currentlyEnabled(Ext_Sv39) => s.bits,
+        Sv48 if currentlyEnabled(Ext_Sv48) => s.bits,
+        Sv57 if currentlyEnabled(Ext_Sv57) => s.bits,
+        _ => prev_value,
+      }
+    }
+  } else {
+    internal_error(__FILE__, __LINE__, "Unsupported xlen" ^ dec_str(xlen))
+  }
 }
 
 /* disabled trigger/debug module */
 register tselect : xlenbits
 
-/*
- * The seed CSR (entropy source)
- * ------------------------------------------------------------
- */
+mapping clause csr_name_map = 0x7a0  <-> "tselect"
+mapping clause csr_name_map = 0x7a1  <-> "tdata1"
+mapping clause csr_name_map = 0x7a2  <-> "tdata2"
+mapping clause csr_name_map = 0x7a3  <-> "tdata3"
 
-/* Valid return states for reading the seed CSR. */
-enum seed_opst = {
-  BIST, // Built-in-self-test. No randomness sampled.
-  ES16, // Entropy-sample-16. Valid 16-bits of randomness sampled.
-  WAIT, // Device still gathering entropy.
-  DEAD  // Fatal device compromise. No randomness sampled.
-}
-
-/* Mapping of status codes and their actual encodings. */
-mapping opst_code : seed_opst <-> bits(2) = {
-  BIST <-> 0b00,
-  WAIT <-> 0b01,
-  ES16 <-> 0b10,
-  DEAD <-> 0b11
-}
+function clause is_CSR_defined(0x7a0) = true
+function clause read_CSR(0x7a0) = ~(tselect)  /* this indicates we don't have any trigger support */
+function clause write_CSR(0x7a0, value) = { tselect = value; tselect }
 
 /*
  * Entropy Source - Platform access to random bits.
- * WARNING: This function currently lacks a proper side-effect annotation.
- *          If you are using theorem prover tool flows, you
- *          may need to modify or stub out this function for now.
  * NOTE: This would be better placed in riscv_platform.sail, but that file
  *       appears _after_ this one in the compile order meaning the valspec
  *       for this function is unavailable when it's first encountered in
  *       read_seed_csr. Hence it appears here.
  */
-val get_16_random_bits = {
-    ocaml: "Platform.get_16_random_bits",
+val get_16_random_bits = impure {
     interpreter: "Platform.get_16_random_bits",
     c: "plat_get_16_random_bits",
     lem: "plat_get_16_random_bits"
 } : unit -> bits(16)
 
-/* Entropy source spec requires an Illegal opcode exception be raised if the
- * seed register is read without also being written. This function is only
- * called once we know the CSR is being written, and all other access control
- * checks have been done.
- */
-function read_seed_csr() -> xlenbits = {
-  let reserved_bits : bits(6) = 0b000000;
-  let custom_bits : bits(8) = 0x00;
-  let seed : bits(16) = get_16_random_bits();
-  EXTZ(opst_code(ES16) @ reserved_bits @ custom_bits @ seed)
+/* vector csrs */
+register vstart : xlenbits
+register vl     : xlenbits
+
+let VLENB : xlenbits =
+  to_bits(2 ^ VLEN_pow / 8)
+
+bitfield Vtype  : xlenbits = {
+  vill      : xlen - 1,
+  reserved  : xlen - 2 .. 8,
+  vma       : 7,
+  vta       : 6,
+  vsew      : 5 .. 3,
+  vlmul     : 2 .. 0
+}
+register vtype : Vtype
+
+type SEW_pow = range(3, 6)
+
+mapping sew_pow_val : bits(3) <-> SEW_pow = {
+  0b000 <-> 3,
+  0b001 <-> 4,
+  0b010 <-> 5,
+  0b011 <-> 6,
 }
 
-/* Writes to the seed CSR are ignored */
-function write_seed_csr () -> option(xlenbits) = None()
+type LMUL_pow = range(-3, 3)
+
+mapping lmul_pow_val : bits(3) <-> LMUL_pow = {
+  0b101 <-> -3,
+  0b110 <-> -2,
+  0b111 <-> -1,
+  0b000 <-> 0,
+  0b001 <-> 1,
+  0b010 <-> 2,
+  0b011 <-> 3,
+}
+
+function is_invalid_sew_pow(v : bits(3)) -> bool =
+  v >_u 0b011
+
+function is_invalid_lmul_pow(v : bits(3)) -> bool =
+  v == 0b100
+
+/* the dynamic selected element width (SEW) */
+/* this returns the power of 2 for SEW */
+function get_sew_pow() -> SEW_pow = {
+  let sew_pow = vtype[vsew];
+  sew_pow_val(sew_pow)
+}
+
+// Valid SEW sizes in bits.
+type sew_bitsize = {8, 16, 32, 64}
+type is_sew_bitsize('n) -> Bool = 'n in {8, 16, 32, 64}
+
+/* this returns the actual value of SEW */
+function get_sew() -> sew_bitsize =
+  2 ^ get_sew_pow()
+
+/* this returns the value of SEW in bytes */
+function get_sew_bytes() -> {1, 2, 4, 8} =
+  get_sew() / 8
+
+/* the vector register group multiplier (LMUL) */
+/* this returns the power of 2 for LMUL */
+val get_lmul_pow : unit -> LMUL_pow
+function get_lmul_pow() = {
+  let lmul_pow = vtype[vlmul];
+  lmul_pow_val(lmul_pow)
+}
+
+enum agtype = { UNDISTURBED, AGNOSTIC }
+
+val decode_agtype : bits(1) -> agtype
+function decode_agtype(ag) = {
+  match ag {
+    0b0 => UNDISTURBED,
+    0b1 => AGNOSTIC
+  }
+}
+
+val get_vtype_vma : unit -> agtype
+function get_vtype_vma() = decode_agtype(vtype[vma])
+
+val get_vtype_vta : unit -> agtype
+function get_vtype_vta() = decode_agtype(vtype[vta])

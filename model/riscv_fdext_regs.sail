@@ -1,69 +1,9 @@
 /*=======================================================================================*/
-/*  RISCV Sail Model                                                                     */
-/*                                                                                       */
 /*  This Sail RISC-V architecture model, comprising all files and                        */
-/*  directories except for the snapshots of the Lem and Sail libraries                   */
-/*  in the prover_snapshots directory (which include copies of their                     */
-/*  licences), is subject to the BSD two-clause licence below.                           */
+/*  directories except where otherwise noted is subject the BSD                          */
+/*  two-clause license in the LICENSE file.                                              */
 /*                                                                                       */
-/*  Copyright (c) 2017-2021                                                              */
-/*    Prashanth Mundkur                                                                  */
-/*    Rishiyur S. Nikhil and Bluespec, Inc.                                              */
-/*    Jon French                                                                         */
-/*    Brian Campbell                                                                     */
-/*    Robert Norton-Wright                                                               */
-/*    Alasdair Armstrong                                                                 */
-/*    Thomas Bauereiss                                                                   */
-/*    Shaked Flur                                                                        */
-/*    Christopher Pulte                                                                  */
-/*    Peter Sewell                                                                       */
-/*    Alexander Richardson                                                               */
-/*    Hesham Almatary                                                                    */
-/*    Jessica Clarke                                                                     */
-/*    Microsoft, for contributions by Robert Norton-Wright and Nathaniel Wesley Filardo  */
-/*    Peter Rugg                                                                         */
-/*    Aril Computer Corp., for contributions by Scott Johnson                            */
-/*                                                                                       */
-/*  All rights reserved.                                                                 */
-/*                                                                                       */
-/*  This software was developed by the above within the Rigorous                         */
-/*  Engineering of Mainstream Systems (REMS) project, partly funded by                   */
-/*  EPSRC grant EP/K008528/1, at the Universities of Cambridge and                       */
-/*  Edinburgh.                                                                           */
-/*                                                                                       */
-/*  This software was developed by SRI International and the University of               */
-/*  Cambridge Computer Laboratory (Department of Computer Science and                    */
-/*  Technology) under DARPA/AFRL contract FA8650-18-C-7809 ("CIFV"), and                 */
-/*  under DARPA contract HR0011-18-C-0016 ("ECATS") as part of the DARPA                 */
-/*  SSITH research programme.                                                            */
-/*                                                                                       */
-/*  This project has received funding from the European Research Council                 */
-/*  (ERC) under the European Union’s Horizon 2020 research and innovation                */
-/*  programme (grant agreement 789108, ELVER).                                           */
-/*                                                                                       */
-/*                                                                                       */
-/*  Redistribution and use in source and binary forms, with or without                   */
-/*  modification, are permitted provided that the following conditions                   */
-/*  are met:                                                                             */
-/*  1. Redistributions of source code must retain the above copyright                    */
-/*     notice, this list of conditions and the following disclaimer.                     */
-/*  2. Redistributions in binary form must reproduce the above copyright                 */
-/*     notice, this list of conditions and the following disclaimer in                   */
-/*     the documentation and/or other materials provided with the                        */
-/*     distribution.                                                                     */
-/*                                                                                       */
-/*  THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS''                   */
-/*  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED                    */
-/*  TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A                      */
-/*  PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR                  */
-/*  CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,                         */
-/*  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT                     */
-/*  LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF                     */
-/*  USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND                  */
-/*  ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,                   */
-/*  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT                   */
-/*  OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF                   */
-/*  SUCH DAMAGE.                                                                         */
+/*  SPDX-License-Identifier: BSD-2-Clause                                                */
 /*=======================================================================================*/
 
 /* **************************************************************** */
@@ -75,58 +15,62 @@
 
 /* **************************************************************** */
 /* NaN boxing/unboxing.                                             */
-/* When 16-bit floats (half-precision) are stored in 32/64-bit regs  */
-/* they must be 'NaN boxed'.                                         */
-/* When 16-bit floats (half-precision) are read from 32/64-bit regs  */
-/* they must be 'NaN unboxed'.                                       */
-/* When 32-bit floats (single-precision) are stored in 64-bit regs  */
-/* they must be 'NaN boxed' (upper 32b all ones).                   */
-/* When 32-bit floats (single-precision) are read from 64-bit regs  */
-/* they must be 'NaN unboxed'.                                      */
 
-function canonical_NaN_H() -> bits(16) = 0x_7e00
-function canonical_NaN_S() -> bits(32) = 0x_7fc0_0000
-function canonical_NaN_D() -> bits(64) = 0x_7ff8_0000_0000_0000
+// Canonical NaNs are used when an invalid boxed value is unboxed.
+val canonical_NaN : forall 'n, 'n in {16, 32, 64, 128} . (implicit('n)) -> bits('n)
+function canonical_NaN(n) =
+  match 'n {
+    //     sign  exponent    significand
+    16  => 0b0 @ ones(5)  @ 0b1 @ zeros(9),
+    32  => 0b0 @ ones(8)  @ 0b1 @ zeros(22),
+    64  => 0b0 @ ones(11) @ 0b1 @ zeros(51),
+    128 => 0b0 @ ones(15) @ 0b1 @ zeros(111),
+  }
 
-val      nan_box_H : bits(16) -> flenbits
-function nan_box_H   val_16b =
-  if (sizeof(flen) == 32)
-  then 0x_FFFF @ val_16b
-  else 0x_FFFF_FFFF_FFFF @ val_16b
+// For backwards compatibility with code that existed before the
+// generic version above.
+function canonical_NaN_H() -> bits(16)  = canonical_NaN(16)
+function canonical_NaN_S() -> bits(32)  = canonical_NaN(32)
+function canonical_NaN_D() -> bits(64)  = canonical_NaN(64)
+function canonical_NaN_Q() -> bits(128) = canonical_NaN(128)
 
-val      nan_unbox_H : flenbits -> bits(16)
-function nan_unbox_H   regval =
-  if (sizeof(flen) == 32)
-  then if regval [32..16] == 0x_FFFF
-       then regval [15..0]
-       else canonical_NaN_H()
-  else if regval [63..16] == 0x_FFFF_FFFF_FFFF
-       then regval [15..0]
-       else canonical_NaN_H()
+// n-bit writes to a >n-bit floating point register "box" the value
+// by prepending 1s, which turn it into a qNaN.
+val nan_box : forall 'n 'm, 'n <= 'm . (implicit('m), bits('n)) -> bits('m)
+function nan_box(n, x) = ones('m - 'n) @ x
 
-val nan_box_S : bits(32) -> flenbits effect {escape}
-function nan_box_S val_32b = {
-  assert(sys_enable_fdext());
-  if (sizeof(flen) == 32)
-  then val_32b
-  else 0x_FFFF_FFFF @ val_32b
-}
-
-val nan_unbox_S : flenbits -> bits(32) effect {escape}
-function nan_unbox_S regval = {
-  assert(sys_enable_fdext());
-  if (sizeof(flen) == 32)
-  then regval
-  else if regval [63..32] == 0x_FFFF_FFFF
-       then regval [31..0]
-       else canonical_NaN_S()
-}
-
-overload nan_box = { nan_box_H, nan_box_S }
-overload nan_unbox = { nan_unbox_H, nan_unbox_S }
+// Except for floating-point transfer instructions (FSn and FMV.n.X),
+// n-bit reads of a >n-bit floating point register "unbox" the value stored
+// in the register. If the register does not contain a valid boxed value
+// then a canonical NaN value is returned instead.
+// TODO: Use right-open interval when available. See https://github.com/rems-project/sail/issues/471
+val nan_unbox : forall 'n 'm, 'm in {16, 32, 64, 128} & 'n >= 'm . (implicit('m), bits('n)) -> bits('m)
+function nan_unbox(m, x) = if 'n == 'm then x else (
+  if x['n - 1 .. 'm] == ones() then x['m - 1 .. 0] else canonical_NaN()
+)
 
 /* **************************************************************** */
 /* Floating point register file                                     */
+
+newtype fregidx = Fregidx : bits(5)
+newtype fregno = Fregno : range(0, 31)
+
+function fregidx_bits(Fregidx(r) : fregidx) -> bits(5) = r
+
+// TODO: We should have a separate Cfregidx type for compressed float registers.
+function cregidx_to_fregidx (Cregidx(b) : cregidx) -> fregidx = Fregidx(0b01 @ b)
+
+/*
+ * TODO: This is not quite right for having both Zfinx and E, but at least it
+ * marks the places we need to consider it
+ */
+function fregidx_to_regidx (Fregidx(b) : fregidx) -> regidx =
+  Regidx(trunc(b))
+
+mapping encdec_freg : fregidx <-> bits(5) = { Fregidx(r) <-> r }
+
+val freg_write_callback = pure {c: "freg_write_callback"} : (fregidx, flenbits) -> unit
+function freg_write_callback(_) = ()
 
 register f0  : fregtype
 register f1  : fregtype
@@ -162,19 +106,19 @@ register f30 : fregtype
 register f31 : fregtype
 
 function dirty_fd_context() -> unit = {
-  assert(sys_enable_fdext());
-  mstatus->FS() = extStatus_to_bits(Dirty);
-  mstatus->SD() = 0b1
+  assert(hartSupports(Ext_F));
+  mstatus[FS] = extStatus_to_bits(Dirty);
+  mstatus[SD] = 0b1;
+  long_csr_write_callback("mstatus", "mstatush", mstatus.bits);
 }
 
 function dirty_fd_context_if_present() -> unit = {
-  assert(sys_enable_fdext() != sys_enable_zfinx());
-  if sys_enable_fdext() then dirty_fd_context()
+  assert(hartSupports(Ext_F) != hartSupports(Ext_Zfinx));
+  if hartSupports(Ext_F) then dirty_fd_context()
 }
 
-val rF : forall 'n, 0 <= 'n < 32. regno('n) -> flenbits effect {rreg, escape}
-function rF r = {
-  assert(sys_enable_fdext());
+function rF (Fregno(r) : fregno) -> flenbits = {
+  assert(hartSupports(Ext_F));
   let v : fregtype =
     match r {
       0 => f0,
@@ -214,9 +158,8 @@ function rF r = {
   fregval_from_freg(v)
 }
 
-val wF : forall 'n, 0 <= 'n < 32. (regno('n), flenbits) -> unit effect {wreg, escape}
-function wF (r, in_v) = {
-  assert(sys_enable_fdext());
+function wF (Fregno(r) : fregno, in_v : flenbits) -> unit = {
+  assert(hartSupports(Ext_F));
   let v = fregval_into_freg(in_v);
   match r {
     0  => f0 = v,
@@ -251,122 +194,142 @@ function wF (r, in_v) = {
     29 => f29 = v,
     30 => f30 = v,
     31 => f31 = v,
-    _  => assert(false, "invalid floating point register number")
   };
 
+  freg_write_callback(Fregidx(to_bits(r)), in_v);
   dirty_fd_context();
-
-  if   get_config_print_reg()
-  then
-      /* TODO: will only print bits; should we print in floating point format? */
-      print_reg("f" ^ string_of_int(r) ^ " <- " ^ FRegStr(v));
 }
 
-function rF_bits(i: bits(5)) -> flenbits = rF(unsigned(i))
+function rF_bits(Fregidx(i) : fregidx) -> flenbits = rF(Fregno(unsigned(i)))
 
-function wF_bits(i: bits(5), data: flenbits) -> unit = {
-  wF(unsigned(i)) = data
+function wF_bits(Fregidx(i) : fregidx, data: flenbits) -> unit = {
+  wF(Fregno(unsigned(i))) = data
 }
 
 overload F = {rF_bits, wF_bits, rF, wF}
 
-val rF_or_X_S : bits(5) -> bits(32) effect {escape, rreg}
-function rF_or_X_S(i) = {
-  assert(sizeof(flen) >= 32);
-  assert(sys_enable_fdext() != sys_enable_zfinx());
-  if   sys_enable_fdext()
-  then nan_unbox(F(i))
-  else X(i)[31..0]
+val rF_H : fregidx -> bits(16)
+function rF_H(i) = {
+  assert(flen >= 16);
+  assert(hartSupports(Ext_F) & not(hartSupports(Ext_Zfinx)));
+  nan_unbox(F(i))
 }
 
-val rF_or_X_D : bits(5) -> bits(64) effect {escape, rreg}
+val wF_H : (fregidx, bits(16)) -> unit
+function wF_H(i, data) = {
+  assert(flen >= 16);
+  assert(hartSupports(Ext_F) & not(hartSupports(Ext_Zfinx)));
+  F(i) = nan_box(data)
+}
+
+val rF_S : fregidx -> bits(32)
+function rF_S(i) = {
+  assert(flen >= 32);
+  assert(hartSupports(Ext_F) & not(hartSupports(Ext_Zfinx)));
+  nan_unbox(F(i))
+}
+
+val wF_S : (fregidx, bits(32)) -> unit
+function wF_S(i, data) = {
+  assert(flen >= 32);
+  assert(hartSupports(Ext_F) & not(hartSupports(Ext_Zfinx)));
+  F(i) = nan_box(data)
+}
+
+val rF_D : fregidx -> bits(64)
+function rF_D(i) = {
+  assert(flen >= 64);
+  assert(hartSupports(Ext_F) & not(hartSupports(Ext_Zfinx)));
+  F(i)
+}
+
+val wF_D : (fregidx, bits(64)) -> unit
+function wF_D(i, data) = {
+  assert(flen >= 64);
+  assert(hartSupports(Ext_F) & not(hartSupports(Ext_Zfinx)));
+  F(i) = data
+}
+
+overload F_H = { rF_H, wF_H }
+overload F_S = { rF_S, wF_S }
+overload F_D = { rF_D, wF_D }
+
+val rF_or_X_H : fregidx -> bits(16)
+function rF_or_X_H(i) = {
+  assert(flen >= 16);
+  assert(hartSupports(Ext_F) != hartSupports(Ext_Zfinx));
+  if   hartSupports(Ext_F)
+  then F_H(i)
+  else X(fregidx_to_regidx(i))[15..0]
+}
+
+val rF_or_X_S : fregidx -> bits(32)
+function rF_or_X_S(i) = {
+  assert(flen >= 32);
+  assert(hartSupports(Ext_F) != hartSupports(Ext_Zfinx));
+  if   hartSupports(Ext_F)
+  then F_S(i)
+  else X(fregidx_to_regidx(i))[31..0]
+}
+
+val rF_or_X_D : fregidx -> bits(64)
 function rF_or_X_D(i) = {
-  assert(sizeof(flen) >= 64);
-  assert(sys_enable_fdext() != sys_enable_zfinx());
-  if   sys_enable_fdext()
-  then F(unsigned(i))
-  else if sizeof(xlen) >= 64
-  then X(i)[63..0]
+  assert(flen >= 64);
+  assert(hartSupports(Ext_F) != hartSupports(Ext_Zfinx));
+  if   hartSupports(Ext_F)
+  then F_D(i)
+  else if xlen >= 64
+  then X(fregidx_to_regidx(i))[63..0]
   else {
-    assert(i[0] == bitzero);
-    if i == zeros() then zeros() else X(i + 1) @ X(i)
+    let ridx = fregidx_to_regidx(i);
+    assert(regidx_bits(ridx)[0] == bitzero);
+    if ridx == zreg then zeros() else X(ridx + 1) @ X(ridx)
   }
 }
 
-val wF_or_X_S : (bits(5), bits(32)) -> unit effect {escape, wreg}
-function wF_or_X_S(i, data) = {
-  assert(sizeof(flen) >= 32);
-  assert(sys_enable_fdext() != sys_enable_zfinx());
-  if   sys_enable_fdext()
-  then F(i) = nan_box(data)
-  else X(i) = EXTS(data)
+val wF_or_X_H : (fregidx, bits(16)) -> unit
+function wF_or_X_H(i, data) = {
+  assert(flen >= 16);
+  assert(hartSupports(Ext_F) != hartSupports(Ext_Zfinx));
+  if   hartSupports(Ext_F)
+  then F_H(i) = data
+  else X(fregidx_to_regidx(i)) = sign_extend(data)
 }
 
-val wF_or_X_D : (bits(5), bits(64)) -> unit effect {escape, wreg}
+val wF_or_X_S : (fregidx, bits(32)) -> unit
+function wF_or_X_S(i, data) = {
+  assert(flen >= 32);
+  assert(hartSupports(Ext_F) != hartSupports(Ext_Zfinx));
+  if   hartSupports(Ext_F)
+  then F_S(i) = data
+  else X(fregidx_to_regidx(i)) = sign_extend(data)
+}
+
+val wF_or_X_D : (fregidx, bits(64)) -> unit
 function wF_or_X_D(i, data) = {
-  assert (sizeof(flen) >= 64);
-  assert(sys_enable_fdext() != sys_enable_zfinx());
-  if   sys_enable_fdext()
-  then F(i) = data
-  else if sizeof(xlen) >= 64
-  then X(i) = EXTS(data)
+  assert (flen >= 64);
+  assert(hartSupports(Ext_F) != hartSupports(Ext_Zfinx));
+  if   hartSupports(Ext_F)
+  then F_D(i) = data
+  else if xlen >= 64
+  then X(fregidx_to_regidx(i)) = sign_extend(data)
   else {
-    assert (i[0] == bitzero);
-    if i != zeros() then {
-      X(i)     = data[31..0];
-      X(i + 1) = data[63..32];
+    let ridx = fregidx_to_regidx(i);
+    assert (regidx_bits(ridx)[0] == bitzero);
+    if ridx != zreg then {
+      X(ridx) = data[31..0];
+      X(ridx + 1) = data[63..32];
     }
   }
 }
 
+overload F_or_X_H = { rF_or_X_H, wF_or_X_H }
 overload F_or_X_S = { rF_or_X_S, wF_or_X_S }
 overload F_or_X_D = { rF_or_X_D, wF_or_X_D }
 
-/* register names */
-
-val freg_name_abi : regidx <-> string
-
-mapping freg_name_abi = {
-    0b00000 <-> "ft0",
-    0b00001 <-> "ft1",
-    0b00010 <-> "ft2",
-    0b00011 <-> "ft3",
-    0b00100 <-> "ft4",
-    0b00101 <-> "ft5",
-    0b00110 <-> "ft6",
-    0b00111 <-> "ft7",
-    0b01000 <-> "fs0",
-    0b01001 <-> "fs1",
-    0b01010 <-> "fa0",
-    0b01011 <-> "fa1",
-    0b01100 <-> "fa2",
-    0b01101 <-> "fa3",
-    0b01110 <-> "fa4",
-    0b01111 <-> "fa5",
-    0b10000 <-> "fa6",
-    0b10001 <-> "fa7",
-    0b10010 <-> "fs2",
-    0b10011 <-> "fs3",
-    0b10100 <-> "fs4",
-    0b10101 <-> "fs5",
-    0b10110 <-> "fs6",
-    0b10111 <-> "fs7",
-    0b11000 <-> "fs8",
-    0b11001 <-> "fs9",
-    0b11010 <-> "fs10",
-    0b11011 <-> "fs11",
-    0b11100 <-> "ft8",
-    0b11101 <-> "ft9",
-    0b11110 <-> "ft10",
-    0b11111 <-> "ft11"
-}
-
-overload to_str = {freg_name_abi}
-
 /* mappings for assembly */
 
-val freg_name : bits(5) <-> string
-mapping freg_name = {
+mapping freg_abi_name_raw : bits(5) <-> string = {
     0b00000 <-> "ft0",
     0b00001 <-> "ft1",
     0b00010 <-> "ft2",
@@ -401,47 +364,53 @@ mapping freg_name = {
     0b11111 <-> "ft11"
 }
 
-val freg_or_reg_name : bits(5) <-> string
-mapping freg_or_reg_name = {
-  reg if sys_enable_fdext() <-> freg_name(reg) if sys_enable_fdext(),
-  reg if sys_enable_zfinx() <-> reg_name(reg)  if sys_enable_zfinx()
+mapping freg_arch_name_raw : bits(5) <-> string = {
+    0b00000 <-> "f0",
+    0b00001 <-> "f1",
+    0b00010 <-> "f2",
+    0b00011 <-> "f3",
+    0b00100 <-> "f4",
+    0b00101 <-> "f5",
+    0b00110 <-> "f6",
+    0b00111 <-> "f7",
+    0b01000 <-> "f8",
+    0b01001 <-> "f9",
+    0b01010 <-> "f10",
+    0b01011 <-> "f11",
+    0b01100 <-> "f12",
+    0b01101 <-> "f13",
+    0b01110 <-> "f14",
+    0b01111 <-> "f15",
+    0b10000 <-> "f16",
+    0b10001 <-> "f17",
+    0b10010 <-> "f18",
+    0b10011 <-> "f19",
+    0b10100 <-> "f20",
+    0b10101 <-> "f21",
+    0b10110 <-> "f22",
+    0b10111 <-> "f23",
+    0b11000 <-> "f24",
+    0b11001 <-> "f25",
+    0b11010 <-> "f26",
+    0b11011 <-> "f27",
+    0b11100 <-> "f28",
+    0b11101 <-> "f29",
+    0b11110 <-> "f30",
+    0b11111 <-> "f31",
 }
 
-val init_fdext_regs : unit -> unit effect {wreg}
-function init_fdext_regs () = {
-  f0  = zero_freg;
-  f1  = zero_freg;
-  f2  = zero_freg;
-  f3  = zero_freg;
-  f4  = zero_freg;
-  f5  = zero_freg;
-  f6  = zero_freg;
-  f7  = zero_freg;
-  f8  = zero_freg;
-  f9  = zero_freg;
-  f10 = zero_freg;
-  f11 = zero_freg;
-  f12 = zero_freg;
-  f13 = zero_freg;
-  f14 = zero_freg;
-  f15 = zero_freg;
-  f16 = zero_freg;
-  f17 = zero_freg;
-  f18 = zero_freg;
-  f19 = zero_freg;
-  f20 = zero_freg;
-  f21 = zero_freg;
-  f22 = zero_freg;
-  f23 = zero_freg;
-  f24 = zero_freg;
-  f25 = zero_freg;
-  f26 = zero_freg;
-  f27 = zero_freg;
-  f28 = zero_freg;
-  f29 = zero_freg;
-  f30 = zero_freg;
-  f31 = zero_freg
+mapping freg_name : fregidx <-> string = {
+  Fregidx(i) if get_config_use_abi_names()      <-> freg_abi_name_raw(i),
+  Fregidx(i) if not(get_config_use_abi_names()) <-> freg_arch_name_raw(i),
 }
+
+mapping freg_or_reg_name : fregidx <-> string = {
+  forwards f if hartSupports(Ext_Zfinx) => reg_name(fregidx_to_regidx(f)),
+  backwards reg_name(Regidx(i)) if hartSupports(Ext_Zfinx) => Fregidx(zero_extend(i)),
+  f <-> freg_name(f)
+}
+
+mapping cfreg_name : cregidx <-> string = { Cregidx(i) <-> freg_name(Fregidx(0b01 @ i)) }
 
 /* **************************************************************** */
 /* Floating Point CSR                                               */
@@ -457,30 +426,20 @@ bitfield Fcsr : bits(32) = {
 
 register fcsr : Fcsr
 
-val ext_write_fcsr : (bits(3), bits(5)) -> unit effect {rreg, wreg, escape}
-function ext_write_fcsr (frm, fflags) = {
-  fcsr->FRM()    = frm;      /* Note: frm can be an illegal value, 101, 110, 111 */
-  fcsr->FFLAGS() = fflags;
-  update_softfloat_fflags(fflags);
+val write_fcsr : (bits(3), bits(5)) -> unit
+function write_fcsr (frm, fflags) = {
+  fcsr[FRM]    = frm;      /* Note: frm can be an illegal value, 101, 110, 111 */
+  fcsr[FFLAGS] = fflags;
   dirty_fd_context_if_present();
 }
 
-/* called for softfloat paths (softfloat flags are consistent) */
-val write_fflags : (bits(5)) -> unit effect {rreg, wreg, escape}
-function write_fflags(fflags) = {
-  if   fcsr.FFLAGS() != fflags
-  then dirty_fd_context_if_present();
-  fcsr->FFLAGS() = fflags;
-}
-
-/* called for non-softfloat paths (softfloat flags need updating) */
-val accrue_fflags : (bits(5)) -> unit effect {rreg, wreg, escape}
+/* OR flags into the fflags register. */
+val accrue_fflags : (bits(5)) -> unit
 function accrue_fflags(flags) = {
-  let f = fcsr.FFLAGS() | flags;
-  if  fcsr.FFLAGS() != f
+  let f = fcsr[FFLAGS] | flags;
+  if  fcsr[FFLAGS] != f
   then {
-    fcsr->FFLAGS() = f;
-    update_softfloat_fflags(f);
+    fcsr[FFLAGS] = f;
     dirty_fd_context_if_present();
   }
 }

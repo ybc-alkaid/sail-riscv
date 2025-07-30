@@ -1,69 +1,9 @@
 /*=======================================================================================*/
-/*  RISCV Sail Model                                                                     */
-/*                                                                                       */
 /*  This Sail RISC-V architecture model, comprising all files and                        */
-/*  directories except for the snapshots of the Lem and Sail libraries                   */
-/*  in the prover_snapshots directory (which include copies of their                     */
-/*  licences), is subject to the BSD two-clause licence below.                           */
+/*  directories except where otherwise noted is subject the BSD                          */
+/*  two-clause license in the LICENSE file.                                              */
 /*                                                                                       */
-/*  Copyright (c) 2017-2021                                                              */
-/*    Prashanth Mundkur                                                                  */
-/*    Rishiyur S. Nikhil and Bluespec, Inc.                                              */
-/*    Jon French                                                                         */
-/*    Brian Campbell                                                                     */
-/*    Robert Norton-Wright                                                               */
-/*    Alasdair Armstrong                                                                 */
-/*    Thomas Bauereiss                                                                   */
-/*    Shaked Flur                                                                        */
-/*    Christopher Pulte                                                                  */
-/*    Peter Sewell                                                                       */
-/*    Alexander Richardson                                                               */
-/*    Hesham Almatary                                                                    */
-/*    Jessica Clarke                                                                     */
-/*    Microsoft, for contributions by Robert Norton-Wright and Nathaniel Wesley Filardo  */
-/*    Peter Rugg                                                                         */
-/*    Aril Computer Corp., for contributions by Scott Johnson                            */
-/*                                                                                       */
-/*  All rights reserved.                                                                 */
-/*                                                                                       */
-/*  This software was developed by the above within the Rigorous                         */
-/*  Engineering of Mainstream Systems (REMS) project, partly funded by                   */
-/*  EPSRC grant EP/K008528/1, at the Universities of Cambridge and                       */
-/*  Edinburgh.                                                                           */
-/*                                                                                       */
-/*  This software was developed by SRI International and the University of               */
-/*  Cambridge Computer Laboratory (Department of Computer Science and                    */
-/*  Technology) under DARPA/AFRL contract FA8650-18-C-7809 ("CIFV"), and                 */
-/*  under DARPA contract HR0011-18-C-0016 ("ECATS") as part of the DARPA                 */
-/*  SSITH research programme.                                                            */
-/*                                                                                       */
-/*  This project has received funding from the European Research Council                 */
-/*  (ERC) under the European Union’s Horizon 2020 research and innovation                */
-/*  programme (grant agreement 789108, ELVER).                                           */
-/*                                                                                       */
-/*                                                                                       */
-/*  Redistribution and use in source and binary forms, with or without                   */
-/*  modification, are permitted provided that the following conditions                   */
-/*  are met:                                                                             */
-/*  1. Redistributions of source code must retain the above copyright                    */
-/*     notice, this list of conditions and the following disclaimer.                     */
-/*  2. Redistributions in binary form must reproduce the above copyright                 */
-/*     notice, this list of conditions and the following disclaimer in                   */
-/*     the documentation and/or other materials provided with the                        */
-/*     distribution.                                                                     */
-/*                                                                                       */
-/*  THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS''                   */
-/*  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED                    */
-/*  TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A                      */
-/*  PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR                  */
-/*  CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,                         */
-/*  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT                     */
-/*  LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF                     */
-/*  USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND                  */
-/*  ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,                   */
-/*  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT                   */
-/*  OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF                   */
-/*  SUCH DAMAGE.                                                                         */
+/*  SPDX-License-Identifier: BSD-2-Clause                                                */
 /*=======================================================================================*/
 
 /* default exception model */
@@ -82,66 +22,78 @@ function prepare_trap_vector(p : Privilege, cause : Mcause) -> xlenbits = {
   let tvec : Mtvec = match p {
                        Machine    => mtvec,
                        Supervisor => stvec,
-                       User       => utvec
+                       User       => internal_error(__FILE__, __LINE__, "Invalid privilege level"),
                      };
   match tvec_addr(tvec, cause) {
     Some(epc) => epc,
-    None()    => internal_error("Invalid tvec mode")
+    None()    => internal_error(__FILE__, __LINE__, "Invalid tvec mode")
   }
 }
 
 /* xRET handling involves three functions:
  *
- * get_xret_target:     used to read the value of the xret target  (no control flow transfer)
- * set_xret_target:     used to write a value of the xret target   (no control flow transfer)
+ * get_xepc:            used to read the value of the xret target  (no control flow transfer)
+ * set_xepc:            used to write a value of the xret target   (no control flow transfer)
  * prepare_xret_target: used to get the value for control transfer to the xret target
  */
 
-val get_xret_target : Privilege -> xlenbits effect {rreg}
-function get_xret_target(p) =
+val get_xepc : Privilege -> xlenbits
+function get_xepc(p) =
   match p {
-    Machine    => mepc,
-    Supervisor => sepc,
-    User       => uepc
+    Machine    => align_pc(mepc),
+    Supervisor => align_pc(sepc),
+    User       => internal_error(__FILE__, __LINE__, "Invalid privilege level"),
   }
 
-val set_xret_target : (Privilege, xlenbits) -> xlenbits effect {rreg, wreg}
-function set_xret_target(p, value) = {
+val set_xepc : (Privilege, xlenbits) -> xlenbits
+function set_xepc(p, value) = {
   let target = legalize_xepc(value);
   match p {
     Machine    => mepc = target,
     Supervisor => sepc = target,
-    User       => uepc = target
+    User       => internal_error(__FILE__, __LINE__, "Invalid privilege level"),
   };
   target
 }
 
-val prepare_xret_target : (Privilege) -> xlenbits effect {rreg, wreg}
+val prepare_xret_target : (Privilege) -> xlenbits
 function prepare_xret_target(p) =
-  get_xret_target(p)
+  get_xepc(p)
 
 /* other trap-related CSRs */
 
 function get_mtvec() -> xlenbits =
-  mtvec.bits()
+  mtvec.bits
 
 function get_stvec() -> xlenbits =
-  stvec.bits()
+  stvec.bits
 
-function get_utvec() -> xlenbits =
-  utvec.bits()
-  
 function set_mtvec(value : xlenbits) -> xlenbits = {
   mtvec = legalize_tvec(mtvec, value);
-  mtvec.bits()
+  mtvec.bits
 }
 
 function set_stvec(value : xlenbits) -> xlenbits = {
   stvec = legalize_tvec(stvec, value);
-  stvec.bits()
+  stvec.bits
 }
 
-function set_utvec(value : xlenbits) -> xlenbits = {
-  utvec = legalize_tvec(utvec, value);
-  utvec.bits()
-}
+mapping clause csr_name_map = 0x105  <-> "stvec"
+mapping clause csr_name_map = 0x141  <-> "sepc"
+mapping clause csr_name_map = 0x305  <-> "mtvec"
+mapping clause csr_name_map = 0x341  <-> "mepc"
+
+function clause is_CSR_defined(0x105) = currentlyEnabled(Ext_S) // stvec
+function clause is_CSR_defined(0x141) = currentlyEnabled(Ext_S) // sepc
+function clause is_CSR_defined(0x305) = true // mtvec
+function clause is_CSR_defined(0x341) = true // mepc
+
+function clause read_CSR(0x105) = get_stvec()
+function clause read_CSR(0x141) = get_xepc(Supervisor)
+function clause read_CSR(0x305) = get_mtvec()
+function clause read_CSR(0x341) = get_xepc(Machine)
+
+function clause write_CSR(0x105, value) = { set_stvec(value) }
+function clause write_CSR(0x141, value) = { set_xepc(Supervisor, value) }
+function clause write_CSR(0x305, value) = { set_mtvec(value) }
+function clause write_CSR(0x341, value) = { set_xepc(Machine, value) }

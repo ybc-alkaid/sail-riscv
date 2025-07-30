@@ -1,151 +1,263 @@
 /*=======================================================================================*/
-/*  RISCV Sail Model                                                                     */
-/*                                                                                       */
 /*  This Sail RISC-V architecture model, comprising all files and                        */
-/*  directories except for the snapshots of the Lem and Sail libraries                   */
-/*  in the prover_snapshots directory (which include copies of their                     */
-/*  licences), is subject to the BSD two-clause licence below.                           */
+/*  directories except where otherwise noted is subject the BSD                          */
+/*  two-clause license in the LICENSE file.                                              */
 /*                                                                                       */
-/*  Copyright (c) 2017-2021                                                              */
-/*    Prashanth Mundkur                                                                  */
-/*    Rishiyur S. Nikhil and Bluespec, Inc.                                              */
-/*    Jon French                                                                         */
-/*    Brian Campbell                                                                     */
-/*    Robert Norton-Wright                                                               */
-/*    Alasdair Armstrong                                                                 */
-/*    Thomas Bauereiss                                                                   */
-/*    Shaked Flur                                                                        */
-/*    Christopher Pulte                                                                  */
-/*    Peter Sewell                                                                       */
-/*    Alexander Richardson                                                               */
-/*    Hesham Almatary                                                                    */
-/*    Jessica Clarke                                                                     */
-/*    Microsoft, for contributions by Robert Norton-Wright and Nathaniel Wesley Filardo  */
-/*    Peter Rugg                                                                         */
-/*    Aril Computer Corp., for contributions by Scott Johnson                            */
-/*                                                                                       */
-/*  All rights reserved.                                                                 */
-/*                                                                                       */
-/*  This software was developed by the above within the Rigorous                         */
-/*  Engineering of Mainstream Systems (REMS) project, partly funded by                   */
-/*  EPSRC grant EP/K008528/1, at the Universities of Cambridge and                       */
-/*  Edinburgh.                                                                           */
-/*                                                                                       */
-/*  This software was developed by SRI International and the University of               */
-/*  Cambridge Computer Laboratory (Department of Computer Science and                    */
-/*  Technology) under DARPA/AFRL contract FA8650-18-C-7809 ("CIFV"), and                 */
-/*  under DARPA contract HR0011-18-C-0016 ("ECATS") as part of the DARPA                 */
-/*  SSITH research programme.                                                            */
-/*                                                                                       */
-/*  This project has received funding from the European Research Council                 */
-/*  (ERC) under the European Union’s Horizon 2020 research and innovation                */
-/*  programme (grant agreement 789108, ELVER).                                           */
-/*                                                                                       */
-/*                                                                                       */
-/*  Redistribution and use in source and binary forms, with or without                   */
-/*  modification, are permitted provided that the following conditions                   */
-/*  are met:                                                                             */
-/*  1. Redistributions of source code must retain the above copyright                    */
-/*     notice, this list of conditions and the following disclaimer.                     */
-/*  2. Redistributions in binary form must reproduce the above copyright                 */
-/*     notice, this list of conditions and the following disclaimer in                   */
-/*     the documentation and/or other materials provided with the                        */
-/*     distribution.                                                                     */
-/*                                                                                       */
-/*  THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS''                   */
-/*  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED                    */
-/*  TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A                      */
-/*  PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR                  */
-/*  CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,                         */
-/*  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT                     */
-/*  LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF                     */
-/*  USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND                  */
-/*  ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,                   */
-/*  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT                   */
-/*  OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF                   */
-/*  SUCH DAMAGE.                                                                         */
+/*  SPDX-License-Identifier: BSD-2-Clause                                                */
 /*=======================================================================================*/
 
 /* The emulator fetch-execute-interrupt dispatch loop. */
 
-/* returns whether to increment the step count in the trace */
-function step(step_no : int) -> bool = {
+register hart_state : HartState = HART_ACTIVE()
+
+union Step = {
+  Step_Pending_Interrupt  : (InterruptType, Privilege),
+  Step_Ext_Fetch_Failure  : ext_fetch_addr_error,
+  Step_Fetch_Failure      : (virtaddr, ExceptionType),
+  Step_Execute            : (ExecutionResult, instbits),
+  Step_Waiting            : WaitReason,
+}
+
+function run_hart_waiting(step_no : int, wr: WaitReason, instbits : instbits, exit_wait : bool) -> Step = {
+  // successfully interrupted waits
+  if shouldWakeForInterrupt() then {
+    if   get_config_print_instr()
+    then print_instr("interrupt exit from " ^ wait_name(wr) ^ " state at PC " ^ BitStr(PC));
+
+    // The waiting instruction retires successfully.  The
+    // pending interrupts will be handled in the next step.
+    hart_state = HART_ACTIVE();
+    return Step_Execute(Retire_Success(), instbits)
+  };
+
+  match (wr, valid_reservation(), exit_wait) {
+    (WAIT_WRS_STO, false, _) => {
+      if   get_config_print_instr()
+      then print_instr("reservation invalid exit from " ^ wait_name(WAIT_WRS_STO) ^ " state at PC " ^ BitStr(PC));
+
+      hart_state = HART_ACTIVE();
+      Step_Execute(Retire_Success(), instbits)
+    },
+    (WAIT_WRS_NTO, false, _) => {
+      if   get_config_print_instr()
+      then print_instr("reservation invalid exit from " ^ wait_name(WAIT_WRS_NTO) ^ " state at PC " ^ BitStr(PC));
+
+      hart_state = HART_ACTIVE();
+      Step_Execute(Retire_Success(), instbits)
+    },
+    // Transition out of waiting states as instructed.
+    (WAIT_WFI, _, true) => {
+      if   get_config_print_instr()
+      then print_instr("forced exit from " ^ wait_name(WAIT_WFI) ^ " state at PC " ^ BitStr(PC));
+
+      hart_state = HART_ACTIVE();
+      // "When TW=1, then if WFI is executed in any
+      // less-privileged mode, and it does not complete within an
+      // implementation-specific, bounded time limit, the WFI
+      // instruction causes an illegal-instruction exception."
+      if   (cur_privilege == Machine | mstatus[TW] == 0b0)
+      then Step_Execute(Retire_Success(), instbits)
+      else Step_Execute(Illegal_Instruction(), instbits)
+    },
+    (WAIT_WRS_STO, _, true) => {
+      if   get_config_print_instr()
+      then print_instr("timed-out exit from " ^ wait_name(WAIT_WRS_STO) ^ " state at PC " ^ BitStr(PC));
+
+      hart_state = HART_ACTIVE();
+      Step_Execute(Retire_Success(), instbits)
+    },
+    (WAIT_WRS_NTO, _, true) => {
+      if   get_config_print_instr()
+      then print_instr("timed-out exit from " ^ wait_name(WAIT_WRS_NTO) ^ " state at PC " ^ BitStr(PC));
+
+      hart_state = HART_ACTIVE();
+      // TODO: This is similar to WFI above for now, but will change to handle
+      // VS/VU modes and hstatus.VTW.
+      if   (cur_privilege == Machine | mstatus[TW] == 0b0)
+      then Step_Execute(Retire_Success(), instbits)
+      else Step_Execute(Illegal_Instruction(), instbits)
+    },
+    // remain waiting
+    (_, _, false) => {
+      if   get_config_print_instr()
+      then print_instr("remaining in " ^ wait_name(wr) ^ " state at PC " ^ BitStr(PC));
+      Step_Waiting(wr)
+    }
+  }
+}
+
+function run_hart_active(step_no: nat) -> Step = {
+  match dispatchInterrupt(cur_privilege) {
+    Some(intr, priv) => Step_Pending_Interrupt(intr, priv),
+    None() => match ext_fetch_hook(fetch()) {
+      /* extension error */
+      F_Ext_Error(e)   => Step_Ext_Fetch_Failure(e),
+      /* standard error */
+      F_Error(e, addr) => Step_Fetch_Failure(Virtaddr(addr), e),
+      /* non-error cases: */
+      F_RVC(h) => {
+        sail_instr_announce(h);
+        let instbits : instbits = zero_extend(h);
+        let ast = ext_decode_compressed(h);
+        if   get_config_print_instr()
+        then {
+          print_instr("[" ^ dec_str(step_no) ^ "] [" ^ to_str(cur_privilege) ^ "]: " ^ BitStr(PC) ^ " (" ^ BitStr(h) ^ ") " ^ to_str(ast));
+        };
+        /* check for RVC once here instead of every RVC execute clause. */
+        if currentlyEnabled(Ext_Zca) then {
+          nextPC = PC + 2;
+          let r = execute(ast);
+          Step_Execute(r, instbits)
+        } else {
+          Step_Execute(Illegal_Instruction(), instbits)
+        }
+      },
+      F_Base(w) => {
+        sail_instr_announce(w);
+        let instbits : instbits = zero_extend(w);
+        let ast = ext_decode(w);
+        if   get_config_print_instr()
+        then {
+          print_instr("[" ^ dec_str(step_no) ^ "] [" ^ to_str(cur_privilege) ^ "]: " ^ BitStr(PC) ^ " (" ^ BitStr(w) ^ ") " ^ to_str(ast));
+        };
+        nextPC = PC + 4;
+        let r = execute(ast);
+        Step_Execute(r, instbits)
+      }
+    }
+  }
+}
+
+function wait_is_nop(wr : WaitReason) -> bool =
+  match wr {
+    WAIT_WFI     => config platform.wfi_is_nop,
+    WAIT_WRS_STO => config extensions.Zawrs.sto.is_nop,
+    WAIT_WRS_NTO => config extensions.Zawrs.nto.is_nop,
+  }
+
+// The `try_step` function is the main internal driver of the Sail
+// model. It performs the fetch-decode-execute for an instruction. It
+// is also the primary interface to the non-Sail execution harness.
+//
+// A "step" is a full execution of an instruction, resulting either
+// in its retirement or a trap. WFI and WRS instructions can cause
+// the model to wait (hart_state is HART_WAITING), in which case
+// a step has not happened and `try_step()` returns true. Otherwise
+// it returns false. Equivalently, it returns whether the model is now
+// in a waiting state (HART_WAITING).
+//
+// * step_no: the current step number; this is maintained by by the
+//            non-Sail harness and is incremented when `try_step()`
+//            returns true.
+// * exit_wait: if true, and the model is waiting (HART_WAITING)
+//              then it will wake up (switch to HART_ACTIVE) and
+//              complete the WFI/WRS instruction, either successfully
+//              retiring it or causing an illegal instruction
+//              exception depending on mstatus[TW]. `exit_wait`
+//              only affects the behaviour if the model is already
+//              waiting from a previous WFI/WRS. It doesn't affect
+//              WFI/WRS instructions executed in the same call of
+//              `try_step()` (but see `wait_is_nop()`).
+//
+function try_step(step_no : nat, exit_wait : bool) -> bool = {
   /* for step extensions */
   ext_pre_step_hook();
 
-  minstret_written = false;     /* see note for minstret */
-  let (retired, stepped) : (Retired, bool) =
-    match dispatchInterrupt(cur_privilege) {
-      Some(intr, priv) => {
-        if   get_config_print_instr()
-        then print_bits("Handling interrupt: ", interruptType_to_bits(intr));
-        handle_interrupt(intr, priv);
-        (RETIRE_FAIL, false)
-      },
-      None() => {
-        /* the extension hook interposes on the fetch result */
-        let f : FetchResult = ext_fetch_hook(fetch());
-        match f {
-          /* extension error */
-          F_Ext_Error(e)   => {
-            ext_handle_fetch_check_error(e);
-            (RETIRE_FAIL, false)
-          },
-          /* standard error */
-          F_Error(e, addr) => {
-            handle_mem_exception(addr, e);
-            (RETIRE_FAIL, false)
-          },
-          /* non-error cases: */
-          F_RVC(h) => {
-            let ast = decodeCompressed(h);
-            if   get_config_print_instr()
-            then {
-              print_instr("[" ^ string_of_int(step_no) ^ "] [" ^ to_str(cur_privilege) ^ "]: " ^ BitStr(PC) ^ " (" ^ BitStr(h) ^ ") " ^ to_str(ast));
-            };
-            /* check for RVC once here instead of every RVC execute clause. */
-            if haveRVC() then {
-              nextPC = PC + 2;
-              (execute(ext_post_decode_hook(ast)), true)
-             } else {
-              handle_illegal();
-              (RETIRE_FAIL, true)
-             }
-          },
-          F_Base(w) => {
-            let ast = decode(w);
-            if   get_config_print_instr()
-            then {
-              print_instr("[" ^ string_of_int(step_no) ^ "] [" ^ to_str(cur_privilege) ^ "]: " ^ BitStr(PC) ^ " (" ^ BitStr(w) ^ ") " ^ to_str(ast));
-            };
-            nextPC = PC + 4;
-            (execute(ext_post_decode_hook(ast)), true)
-          }
-        }
-      }
+  /*
+   * This records whether or not minstret should be incremented when
+   * the instruction is retired. Since retirement occurs before CSR
+   * writes we initialise it based on mcountinhibit here, before it is
+   * potentially changed. This is also set to false if minstret is
+   * written.  See the note near the minstret declaration for more
+   * information.
+   */
+  minstret_increment = should_inc_minstret(cur_privilege);
+
+  let step_val : Step = match hart_state {
+      HART_WAITING(wr, instbits) => run_hart_waiting(step_no, wr, instbits, exit_wait),
+      HART_ACTIVE()              => run_hart_active(step_no),
     };
 
-  tick_pc();
+  match step_val {
+    Step_Pending_Interrupt(intr, priv) => {
+      if   get_config_print_instr()
+      then print_bits("Handling interrupt: ", interruptType_to_bits(intr));
+      handle_interrupt(intr, priv)
+    },
+    Step_Ext_Fetch_Failure(e) => ext_handle_fetch_check_error(e),
+    Step_Fetch_Failure(vaddr, e) => handle_mem_exception(vaddr, e),
+    Step_Waiting(_) => assert(hart_is_waiting(hart_state), "cannot be Waiting in a non-Wait state"),
+    Step_Execute(Retire_Success(), _) => assert(hart_is_active(hart_state)),
+    // standard errors
+    Step_Execute(Trap(priv, ctl, pc), _) => set_next_pc(exception_handler(priv, ctl, pc)),
+    Step_Execute(Memory_Exception(vaddr, e), _) => handle_mem_exception(vaddr, e),
+    Step_Execute(Illegal_Instruction(), instbits) => handle_illegal(instbits),
+    Step_Execute(Enter_Wait(wr), instbits) => {
+      if wait_is_nop(wr) then {
+        // This is the same as the RETIRE_OK case.
+        assert(hart_is_active(hart_state));
+      } else {
+        // Transition into the wait state.
+        if   get_config_print_instr()
+        then print_instr("entering " ^ wait_name(wr) ^ " state at PC " ^ BitStr(PC));
 
-  /* update minstret */
-  match retired {
-    RETIRE_SUCCESS => retire_instruction(),
-    RETIRE_FAIL    => ()
+        hart_state = HART_WAITING(wr, instbits);
+      }
+    },
+    // errors from extensions
+    Step_Execute(Ext_CSR_Check_Failure(), _) => ext_check_CSR_fail(),
+    Step_Execute(Ext_ControlAddr_Check_Failure(e), _) => ext_handle_control_check_error(e),
+    Step_Execute(Ext_DataAddr_Check_Failure(e), _) => ext_handle_data_check_error(e),
+    Step_Execute(Ext_XRET_Priv_Failure(), _) => ext_fail_xret_priv(),
   };
 
-  /* for step extensions */
-  ext_post_step_hook();
+  match hart_state {
+    HART_WAITING(_) => true,
+    HART_ACTIVE() => {
+      tick_pc();
 
-  stepped
+      let retired : bool = match step_val {
+        Step_Execute(Retire_Success(), _) => true,
+        // WFI, WRS.{STO, NTO} retire immediately if the model is configured
+        // to treat them as a nop.  Otherwise they always wait for at least
+        // one call of `try_step()`.
+        Step_Execute(Enter_Wait(wr), _) if wait_is_nop(wr) => true,
+        _ => false,
+      };
+
+      // Increment minstret if we retired an instruction and the
+      // update wasn't suppressed by writing to it explicitly or
+      // mcountinhibit[IR] or minstretcfg.
+      if retired & minstret_increment then minstret = minstret + 1;
+
+      // Record the next PC for RVFI.
+      // TODO: Remove this and implement it in C.
+      if get_config_rvfi() then {
+        rvfi_pc_data[rvfi_pc_wdata] = zero_extend(get_arch_pc())
+      };
+
+      // For step extensions
+      ext_post_step_hook();
+      // Return that we have stepped and are not waiting.
+      false
+    }
+  }
 }
 
 function loop () : unit -> unit = {
-  let insns_per_tick = plat_insns_per_tick();
-  i : int = 0;
-  step_no : int = 0;
-  while (~ (htif_done)) do {
-    let stepped = step(step_no);
-    if stepped then step_no = step_no + 1;
+  var i : nat = 0;
+  var step_no : nat = 0;
+  while not(htif_done) do {
+    // This standalone loop always exits immediately out of waiting
+    // states.
+    let stepped = try_step(step_no, true);
+    if stepped then {
+      step_no = step_no + 1;
+      if get_config_print_instr() then {
+        print_step()
+      };
+      sail_end_cycle()
+    };
 
     /* check htif exit */
     if htif_done then {
@@ -155,23 +267,10 @@ function loop () : unit -> unit = {
     } else {
       /* update time */
       i = i + 1;
-      if i == insns_per_tick then {
+      if i == plat_insns_per_tick then {
         tick_clock();
-        /* for now, we drive the platform i/o at every clock tick. */
-        tick_platform();
         i = 0;
       }
     }
   }
-}
-
-/* initialize model state */
-function init_model () -> unit = {
-  init_platform (); /* devices */
-  init_sys ();      /* processor */
-  init_vmem ();     /* virtual memory */
-
-  /* initialize extensions last */
-  ext_init ();
-  ext_init_regs ();
 }

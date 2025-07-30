@@ -1,69 +1,9 @@
 /*=======================================================================================*/
-/*  RISCV Sail Model                                                                     */
-/*                                                                                       */
 /*  This Sail RISC-V architecture model, comprising all files and                        */
-/*  directories except for the snapshots of the Lem and Sail libraries                   */
-/*  in the prover_snapshots directory (which include copies of their                     */
-/*  licences), is subject to the BSD two-clause licence below.                           */
+/*  directories except where otherwise noted is subject the BSD                          */
+/*  two-clause license in the LICENSE file.                                              */
 /*                                                                                       */
-/*  Copyright (c) 2017-2021                                                              */
-/*    Prashanth Mundkur                                                                  */
-/*    Rishiyur S. Nikhil and Bluespec, Inc.                                              */
-/*    Jon French                                                                         */
-/*    Brian Campbell                                                                     */
-/*    Robert Norton-Wright                                                               */
-/*    Alasdair Armstrong                                                                 */
-/*    Thomas Bauereiss                                                                   */
-/*    Shaked Flur                                                                        */
-/*    Christopher Pulte                                                                  */
-/*    Peter Sewell                                                                       */
-/*    Alexander Richardson                                                               */
-/*    Hesham Almatary                                                                    */
-/*    Jessica Clarke                                                                     */
-/*    Microsoft, for contributions by Robert Norton-Wright and Nathaniel Wesley Filardo  */
-/*    Peter Rugg                                                                         */
-/*    Aril Computer Corp., for contributions by Scott Johnson                            */
-/*                                                                                       */
-/*  All rights reserved.                                                                 */
-/*                                                                                       */
-/*  This software was developed by the above within the Rigorous                         */
-/*  Engineering of Mainstream Systems (REMS) project, partly funded by                   */
-/*  EPSRC grant EP/K008528/1, at the Universities of Cambridge and                       */
-/*  Edinburgh.                                                                           */
-/*                                                                                       */
-/*  This software was developed by SRI International and the University of               */
-/*  Cambridge Computer Laboratory (Department of Computer Science and                    */
-/*  Technology) under DARPA/AFRL contract FA8650-18-C-7809 ("CIFV"), and                 */
-/*  under DARPA contract HR0011-18-C-0016 ("ECATS") as part of the DARPA                 */
-/*  SSITH research programme.                                                            */
-/*                                                                                       */
-/*  This project has received funding from the European Research Council                 */
-/*  (ERC) under the European Union’s Horizon 2020 research and innovation                */
-/*  programme (grant agreement 789108, ELVER).                                           */
-/*                                                                                       */
-/*                                                                                       */
-/*  Redistribution and use in source and binary forms, with or without                   */
-/*  modification, are permitted provided that the following conditions                   */
-/*  are met:                                                                             */
-/*  1. Redistributions of source code must retain the above copyright                    */
-/*     notice, this list of conditions and the following disclaimer.                     */
-/*  2. Redistributions in binary form must reproduce the above copyright                 */
-/*     notice, this list of conditions and the following disclaimer in                   */
-/*     the documentation and/or other materials provided with the                        */
-/*     distribution.                                                                     */
-/*                                                                                       */
-/*  THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS''                   */
-/*  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED                    */
-/*  TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A                      */
-/*  PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR                  */
-/*  CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,                         */
-/*  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT                     */
-/*  LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF                     */
-/*  USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND                  */
-/*  ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,                   */
-/*  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT                   */
-/*  OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF                   */
-/*  SUCH DAMAGE.                                                                         */
+/*  SPDX-License-Identifier: BSD-2-Clause                                                */
 /*=======================================================================================*/
 
 default Order dec
@@ -72,159 +12,155 @@ $include <smt.sail>
 $include <option.sail>
 $include <arith.sail>
 $include <string.sail>
+$include <mapping.sail>
 $include <vector_dec.sail>
-$include <regfp.sail>
-
-val string_startswith = "string_startswith" : (string, string) -> bool
-val string_drop = "string_drop" : (string, nat) -> string
-val string_take = "string_take" : (string, nat) -> string
-val string_length = "string_length" : string -> nat
-val string_append = {c: "concat_str", _: "string_append"} : (string, string) -> string
-
-val eq_anything = {ocaml: "(fun (x, y) -> x = y)", interpreter: "eq_anything", lem: "eq", coq: "generic_eq", c: "eq_anything"} : forall ('a : Type). ('a, 'a) -> bool
-
-overload operator == = {eq_string, eq_anything}
-
-val "reg_deref" : forall ('a : Type). register('a) -> 'a effect {rreg}
-/* sneaky deref with no effect necessary for bitfield writes */
-val _reg_deref = "reg_deref" : forall ('a : Type). register('a) -> 'a
-
-val any_vector_update = {ocaml: "update", lem: "update_list_dec", coq: "vector_update"} : forall 'n ('a : Type).
-  (vector('n, dec, 'a), int, 'a) -> vector('n, dec, 'a)
-
-overload vector_update = {any_vector_update}
-
-val update_subrange = {ocaml: "update_subrange", interpreter: "update_subrange", lem: "update_subrange_vec_dec", coq: "update_subrange_vec_dec"} : forall 'n 'm 'o.
-  (bits('n), atom('m), atom('o), bits('m - ('o - 1))) -> bits('n)
-
-val vector_concat = {ocaml: "append", lem: "append_list", coq: "vec_concat"} : forall ('n : Int) ('m : Int) ('a : Type).
-  (vector('n, dec, 'a), vector('m, dec, 'a)) -> vector('n + 'm, dec, 'a)
-
-overload append = {vector_concat}
+$include <generic_equality.sail>
+$include <hex_bits.sail>
+$include <hex_bits_signed.sail>
+$include <dec_bits.sail>
 
 val not_bit : bit -> bit
-
 function not_bit(b) = if b == bitone then bitzero else bitone
 
 overload ~ = {not_bool, not_vec, not_bit}
 
-val neq_vec = {lem: "neq"} : forall 'n. (bits('n), bits('n)) -> bool
-
-function neq_vec (x, y) = not_bool(eq_bits(x, y))
-
-val neq_anything = {lem: "neq", coq: "generic_neq"} : forall ('a : Type). ('a, 'a) -> bool
-
-function neq_anything (x, y) = not_bool(x == y)
-
-overload operator != = {neq_vec, neq_anything}
+// not_bool alias.
+val not : forall ('p : Bool). bool('p) -> bool(not('p))
+function not(b) = not_bool(b)
 
 overload operator & = {and_vec}
 
 overload operator | = {or_vec}
 
-val string_of_int = {c: "string_of_int", ocaml: "string_of_int", interpreter: "string_of_int", lem: "stringFromInteger", coq: "string_of_int"} : int -> string
-
-val "string_of_bits" : forall 'n. bits('n) -> string
-
-function string_of_bit(b: bit) -> string =
+function bit_str(b: bit) -> string =
   match b {
     bitzero => "0b0",
     bitone => "0b1"
   }
 
-overload BitStr = {string_of_bits, string_of_bit}
+overload BitStr = {bits_str, bit_str}
 
-val xor_vec = {c: "xor_bits", _: "xor_vec"} : forall 'n. (bits('n), bits('n)) -> bits('n)
+overload operator ^ = {xor_vec, concat_str}
 
-val int_power = {ocaml: "int_power", interpreter: "int_power", lem: "pow", coq: "pow", c: "pow_int"} : (int, int) -> int
+val sub_vec = pure {c: "sub_bits", lean: "_lean_sub", _: "sub_vec"} : forall 'n. (bits('n), bits('n)) -> bits('n)
 
-overload operator ^ = {xor_vec, int_power, concat_str}
-
-val sub_vec = {c: "sub_bits", _: "sub_vec"} : forall 'n. (bits('n), bits('n)) -> bits('n)
-
-val sub_vec_int = {c: "sub_bits_int", _: "sub_vec_int"} : forall 'n. (bits('n), int) -> bits('n)
+val sub_vec_int = pure {c: "sub_bits_int", lean: "BitVec.subInt", _: "sub_vec_int"} : forall 'n. (bits('n), int) -> bits('n)
 
 overload operator - = {sub_vec, sub_vec_int}
 
-val quot_round_zero = {ocaml: "quot_round_zero", interpreter: "quot_round_zero", lem: "hardware_quot", c: "tdiv_int", coq: "Z.quot"} : (int, int) -> int
-val rem_round_zero = {ocaml: "rem_round_zero", interpreter: "rem_round_zero", lem: "hardware_mod", c: "tmod_int", coq: "Z.rem"} : (int, int) -> int
+val quot_positive_round_zero = pure {interpreter: "quot_round_zero", lem: "hardware_quot", lean: "Int.tdiv", c: "tdiv_int", coq: "Z.quot"} : forall 'n 'm, 'n >= 0 & 'm > 0. (int('n), int('m)) -> int(div('n, 'm))
+val quot_round_zero = pure {interpreter: "quot_round_zero", lem: "hardware_quot", c: "tdiv_int", coq: "Z.quot", lean: "Int.tdiv"} : forall 'm, 'm != 0 . (int, int('m)) -> int
 
-/* The following should get us euclidean modulus, and is compatible with pre and post 0.9 versions of sail */
-overload operator % = {emod_int, mod}
+val rem_positive_round_zero = pure {interpreter: "rem_round_zero", lem: "hardware_mod", c: "tmod_int", coq: "Z.rem", lean: "Int.tmod"} : forall 'n 'm, 'n >= 0 & 'm > 0. (int('n), int('m)) -> int(mod('n, 'm))
+val rem_round_zero = pure {interpreter: "rem_round_zero", lem: "hardware_mod", c: "tmod_int", coq: "Z.rem", lean: "Int.tmod"} : forall 'm, 'm != 0 . (int, int('m)) -> int
 
-val min_int = {ocaml: "min_int", interpreter: "min_int", lem: "min", coq: "min_atom", c: "min_int"} : forall 'x 'y.
-  (int('x), int('y)) -> {'z, ('x <= 'y & 'z == 'x) | ('x > 'y & 'z == 'y). int('z)}
-
-val max_int = {ocaml: "max_int", interpreter: "max_int", lem: "max", coq: "max_atom", c: "max_int"} : forall 'x 'y.
-  (int('x), int('y)) -> {'z, ('x >= 'y & 'z == 'x) | ('x < 'y & 'z == 'y). int('z)}
+// For working with division / modulus we require the divisor to be >= 1.
+// This type describes that.
+type nat1 = {'n, 'n > 0. int('n)}
 
 overload min = {min_int}
-
 overload max = {max_int}
 
-val pow2 = "pow2" : forall 'n. atom('n) -> atom(2 ^ 'n)
+val print_string = pure "print_string" : (string, string) -> unit
 
-val print = "print_endline" : string -> unit
-val print_string = "print_string" : (string, string) -> unit
+val print_instr    = pure {interpreter: "print_endline", c: "print_instr", lem: "print_dbg", _: "print_endline"} : string -> unit
+val print_platform = pure {interpreter: "print_endline", c: "print_platform", lem: "print_dbg", _: "print_endline"} : string -> unit
 
-val print_instr    = {ocaml: "Platform.print_instr", interpreter: "print_endline", c: "print_instr", lem: "print_dbg", _: "print_endline"} : string -> unit
-val print_reg      = {ocaml: "Platform.print_reg", interpreter: "print_endline", c: "print_reg", lem: "print_dbg", _: "print_endline"} : string -> unit
-val print_mem      = {ocaml: "Platform.print_mem_access", interpreter: "print_endline", c: "print_mem_access", lem: "print_dbg", _: "print_endline"} : string -> unit
-val print_platform = {ocaml: "Platform.print_platform", interpreter: "print_endline", c: "print_platform", lem: "print_dbg", _: "print_endline"} : string -> unit
+val print_step = pure {c: "print_step"} : unit -> unit
+function print_step() = ()
 
-val get_config_print_instr = {ocaml: "Platform.get_config_print_instr", c:"get_config_print_instr"} : unit -> bool
-val get_config_print_reg = {ocaml: "Platform.get_config_print_reg", c:"get_config_print_reg"} : unit -> bool
-val get_config_print_mem = {ocaml: "Platform.get_config_print_mem", c:"get_config_print_mem"} : unit -> bool
-
-val get_config_print_platform = {ocaml: "Platform.get_config_print_platform", c:"get_config_print_platform"} : unit -> bool
+val get_config_print_instr = pure {c:"get_config_print_instr"} : unit -> bool
+val get_config_print_platform = pure {c:"get_config_print_platform"} : unit -> bool
+val get_config_rvfi = pure {c:"get_config_rvfi"} : unit -> bool
+val get_config_use_abi_names = pure {c:"get_config_use_abi_names"} : unit -> bool
 // defaults for other backends
 function get_config_print_instr () = false
-function get_config_print_reg () = false
-function get_config_print_mem () = false
 function get_config_print_platform () = false
+function get_config_rvfi () = false
+function get_config_use_abi_names () = false
 
-val EXTS : forall 'n 'm, 'm >= 'n. (implicit('m), bits('n)) -> bits('m)
-val EXTZ : forall 'n 'm, 'm >= 'n. (implicit('m), bits('n)) -> bits('m)
+val sign_extend : forall 'n 'm, 'm >= 'n. (implicit('m), bits('n)) -> bits('m)
+val zero_extend : forall 'n 'm, 'm >= 'n. (implicit('m), bits('n)) -> bits('m)
 
-function EXTS(m, v) = sail_sign_extend(v, m)
-function EXTZ(m, v) = sail_zero_extend(v, m)
+function sign_extend(m, v) = sail_sign_extend(v, m)
+function zero_extend(m, v) = sail_zero_extend(v, m)
 
-val zeros_implicit : forall 'n, 'n >= 0 . implicit('n) -> bits('n)
-function zeros_implicit (n) = sail_zeros(n)
-overload zeros = {zeros_implicit}
+val zeros : forall 'n, 'n >= 0 . implicit('n) -> bits('n)
+function zeros (n) = sail_zeros(n)
 
 val ones : forall 'n, 'n >= 0 . implicit('n) -> bits('n)
-function ones (n) = sail_ones (n)
+function ones (n) = sail_ones(n)
 
-val bool_to_bits : bool -> bits(1)
-function bool_to_bits x = if x then 0b1 else 0b0
+// Implicit version of truncate. Unfortunately the non-implicit version
+// isn't called `sail_truncate()` by Sail so we can't name this `truncate()`.
+val trunc : forall 'm 'n, 'm >= 0 & 'm <= 'n. (implicit('m), bits('n)) -> bits('m)
+function trunc(m, v) = truncate(v, m)
 
-val bit_to_bool : bit -> bool
-function bit_to_bool b = match b {
-  bitone  => true,
-  bitzero => false
+mapping bool_bit : bool <-> bit = {
+  true <-> bitone,
+  false <-> bitzero,
 }
 
-val to_bits : forall 'l, 'l >= 0.(atom('l), int) -> bits('l)
-function to_bits (l, n) = get_slice_int(l, n, 0)
+mapping bool_bits : bool <-> bits(1) = {
+  true   <-> 0b1,
+  false  <-> 0b0,
+}
+
+// These aliases make the conversion direction a bit clearer.
+function bool_to_bit(x : bool) -> bit = bool_bit(x)
+function bit_to_bool(x : bit) -> bool = bool_bit(x)
+function bool_to_bits(x : bool) -> bits(1) = bool_bits(x)
+function bits_to_bool(x : bits(1)) -> bool = bool_bits(x)
+
+// Convert an integer to bits. This requires that the integer is known to fit
+// inside the resulting bit vector. Note this only admits non-negative numbers.
+val to_bits : forall 'l 'x, 'l >= 0 & 0 <= 'x < 2 ^ 'l . (implicit('l), int('x)) -> bits('l)
+function to_bits(l, n) = get_slice_int(l, n, 0)
+
+// The same as to_bits() but the value is checked at runtime since we can't check
+// it at compile-time. The number is assumed to be unsigned.
+val to_bits_checked : forall 'l, 'l >= 0 . (implicit('l), int) -> bits('l)
+function to_bits_checked(l, n) = {
+  let bv = get_slice_int(l, n, 0);
+  assert(unsigned(bv) == n, "Couldn't convert integer " ^ dec_str(n) ^ " to " ^ dec_str(l) ^ " bits without overflow.");
+  bv
+}
+
+// This version allows any integer as input (including negative) but it will truncate the result.
+val to_bits_truncate : forall 'l, 'l >= 0 . (implicit('l), int) -> bits('l)
+function to_bits_truncate(l, n) = get_slice_int(l, n, 0)
+
+// This version should never be used. It is only for migrating code from
+// when there was no distinction between checked and truncating to_bits.
+val to_bits_unsafe : forall 'l, 'l >= 0 . (implicit('l), int) -> bits('l)
+function to_bits_unsafe(l, n) = get_slice_int(l, n, 0)
 
 infix 4 <_s
+infix 4 >_s
+infix 4 <=_s
 infix 4 >=_s
 infix 4 <_u
-infix 4 >=_u
+infix 4 >_u
 infix 4 <=_u
+infix 4 >=_u
 
 val operator <_s  : forall 'n, 'n > 0. (bits('n), bits('n)) -> bool
+val operator >_s  : forall 'n, 'n > 0. (bits('n), bits('n)) -> bool
+val operator <=_s : forall 'n, 'n > 0. (bits('n), bits('n)) -> bool
 val operator >=_s : forall 'n, 'n > 0. (bits('n), bits('n)) -> bool
 val operator <_u  : forall 'n. (bits('n), bits('n)) -> bool
-val operator >=_u : forall 'n. (bits('n), bits('n)) -> bool
+val operator >_u  : forall 'n. (bits('n), bits('n)) -> bool
 val operator <=_u : forall 'n. (bits('n), bits('n)) -> bool
+val operator >=_u : forall 'n. (bits('n), bits('n)) -> bool
 
 function operator <_s  (x, y) = signed(x) < signed(y)
+function operator >_s  (x, y) = signed(x) > signed(y)
+function operator <=_s (x, y) = signed(x) <= signed(y)
 function operator >=_s (x, y) = signed(x) >= signed(y)
 function operator <_u  (x, y) = unsigned(x) < unsigned(y)
-function operator >=_u (x, y) = unsigned(x) >= unsigned(y)
+function operator >_u  (x, y) = unsigned(x) > unsigned(y)
 function operator <=_u (x, y) = unsigned(x) <= unsigned(y)
+function operator >=_u (x, y) = unsigned(x) >= unsigned(y)
 
 infix 7 >>
 infix 7 <<
@@ -232,96 +168,100 @@ infix 7 <<
 val "shift_bits_right" : forall 'n 'm. (bits('n), bits('m)) -> bits('n)
 val "shift_bits_left"  : forall 'n 'm. (bits('n), bits('m)) -> bits('n)
 
-val "shiftl" : forall 'm 'n, 'n >= 0. (bits('m), atom('n)) -> bits('m)
-val "shiftr" : forall 'm 'n, 'n >= 0. (bits('m), atom('n)) -> bits('m)
+val "shiftl" : forall 'm 'n, 'n >= 0. (bits('m), int('n)) -> bits('m)
+val "shiftr" : forall 'm 'n, 'n >= 0. (bits('m), int('n)) -> bits('m)
 
 overload operator >> = {shift_bits_right, shiftr}
 overload operator << = {shift_bits_left, shiftl}
 
-/* Ideally these would be sail builtin */
+// Ideally this would be sail builtin. This implementation is not efficient for large shifts.
 
-function shift_right_arith64 (v : bits(64), shift : bits(6)) -> bits(64) =
-    let v128 : bits(128) = EXTS(v) in
-    (v128 >> shift)[63..0]
+// 'n >= 1 is required due to https://github.com/rems-project/sail/issues/471
+val shift_right_arith : forall 'm 'n, 'n >= 1 & 'm >= 0 . (bits('n), int('m)) -> bits('n)
+function shift_right_arith(value, shift) =
+  sign_extend('n + shift, value)[('n - 1 + shift) .. shift]
 
-function shift_right_arith32 (v : bits(32), shift : bits(5)) -> bits(32) =
-    let v64 : bits(64) = EXTS(v) in
-    (v64 >> shift)[31..0]
+val shift_bits_right_arith : forall 'm 'n, 'n >= 1 . (bits('n), bits('m)) -> bits('n)
+function shift_bits_right_arith(value, shift) =
+  shift_right_arith(value, unsigned(shift))
 
 infix 7 >>>
 infix 7 <<<
 
-val rotate_bits_right : forall 'n 'm, 'm >= 0. (bits('n), bits('m)) -> bits('n)
-function rotate_bits_right (v, n) =
-    (v >> n) | (v << (to_bits(length(n), length(v)) - n))
+val rotater : forall 'm 'n, 'm >= 'n >= 0. (bits('m), int('n)) -> bits('m)
+function rotater(value, shift) =
+  (value >> shift) | (value << ('m - shift))
 
-val rotate_bits_left : forall 'n 'm, 'm >= 0. (bits('n), bits('m)) -> bits('n)
-function rotate_bits_left (v, n) =
-    (v << n) | (v >> (to_bits(length(n), length(v)) - n))
+val rotatel : forall 'm 'n, 'm >= 'n >= 0. (bits('m), int('n)) -> bits('m)
+function rotatel(value, shift) =
+  (value << shift) | (value >> ('m - shift))
 
-val rotater : forall 'm 'n, 'm >= 'n >= 0. (bits('m), atom('n)) -> bits('m)
-function rotater (v, n) =
-    (v >> n) | (v << (length(v) - n))
+val rotate_bits_right : forall 'm 'n, 'n >= 0 & 'm >= 2 ^ 'n . (bits('m), bits('n)) -> bits('m)
+function rotate_bits_right(value, shift) = rotater(value, unsigned(shift))
 
-val rotatel : forall 'm 'n, 'm >= 'n >= 0. (bits('m), atom('n)) -> bits('m)
-function rotatel (v, n) =
-    (v << n) | (v >> (length(v) - n))
+val rotate_bits_left : forall 'm 'n, 'n >= 0 & 'm >= 2 ^ 'n . (bits('m), bits('n)) -> bits('m)
+function rotate_bits_left (value, shift) = rotatel(value, unsigned(shift))
 
 overload operator >>> = {rotate_bits_right, rotater}
 overload operator <<< = {rotate_bits_left, rotatel}
 
-function reverse_bits_in_byte (xs : bits(8)) -> bits(8) = {
-  ys : bits(8) = zeros();
-  foreach (i from 0 to 7)
-    ys[i] = xs[7-i];
+val reverse_bits : forall 'n, 'n > 0. bits('n) -> bits('n)
+function reverse_bits (xs)  = {
+  var ys : bits('n) = zeros();
+  foreach (i from 0 to ('n - 1))
+    ys[i] = xs['n - 1 - i];
   ys
 }
 
-overload reverse = {reverse_bits_in_byte}
+overload operator * = {mult_atom, mult_int}
+// quot_round_zero and rem_round_zero are deliberately not
+// added to these overloads to avoid accidentally doing
+// division or modulo with negative numbers which is almost
+// always a mistake in this context.
+overload operator / = {quot_positive_round_zero}
+overload operator % = {rem_positive_round_zero}
 
-/* helpers for mappings */
-
-val spc : unit <-> string
-val opt_spc : unit <-> string
-val def_spc : unit <-> string
-
-val "decimal_string_of_bits" : forall 'n. bits('n) -> string
-val hex_bits : forall 'n . (atom('n), bits('n)) <-> string
-
-val n_leading_spaces : string -> nat
-function n_leading_spaces s =
-  match s {
-    "" => 0,
-    _ => match string_take(s, 1) {
-      " " => 1 + n_leading_spaces(string_drop(s, 1)),
-      _ => 0
-    }
-  }
-
-val spc_forwards : unit -> string
-function spc_forwards () = " "
-val spc_backwards : string -> unit
-function spc_backwards s = ()
-val spc_matches_prefix : string -> option((unit, nat))
-function spc_matches_prefix s = {
-  let n = n_leading_spaces(s);
-  match n {
-    0 => None(),
-    _ => Some((), n)
-  }
+/* helper for vector extension
+ * 1. EEW between 8 and 64
+ * 2. EMUL in vmv<nr>r.v instructions between 1 and 8
+ */
+val log2 : forall 'n, 'n in {1, 2, 4, 8, 16, 32, 64}. int('n) -> int
+function log2(n) = {
+  let result : int = match n {
+    1    => 0,
+    2    => 1,
+    4    => 2,
+    8    => 3,
+    16   => 4,
+    32   => 5,
+    64   => 6
+  };
+  result
 }
 
-val opt_spc_forwards : unit -> string
-function opt_spc_forwards () = ""
-val opt_spc_backwards : string -> unit
-function opt_spc_backwards s = ()
-val opt_spc_matches_prefix : string -> option((unit, nat))
-function opt_spc_matches_prefix s =
-  Some((), n_leading_spaces(s))
+/* This is a slightly arbitrary limit on the maximum number of bytes
+   in a memory access.  It helps to generate slightly better C code
+   because it means width argument can be fast native integer. It
+   would be even better if it could be <= 8 bytes so that data can
+   also be a 64-bit int but CHERI needs 128-bit accesses for
+   capabilities and SIMD / vector instructions will also need more.
 
-val def_spc_forwards : unit -> string
-function def_spc_forwards () = " "
-val def_spc_backwards : string -> unit
-function def_spc_backwards s = ()
-val def_spc_matches_prefix : string -> option((unit, nat))
-function def_spc_matches_prefix s = opt_spc_matches_prefix(s)
+   The specific value does not matter (if it is >8) since anything up
+   to 2^64-1 will result in a native int being used for the width type.
+
+   4096 was chosen because it is a page size, and a reasonable maximum
+   for cbo.zero.
+   */
+type max_mem_access : Int = 4096
+
+// Type used for memory access widths. Zero byte accesses are not allowed.
+type mem_access_width = range(1, max_mem_access)
+
+// Enable unratified extensions
+val sys_enable_experimental_extensions = pure "sys_enable_experimental_extensions" : unit -> bool
+
+// Print a bit vector in hex. If it is not a multiple of 4
+// bits in length zero extend it so it is (bits_str() prints
+// bit vectors that aren't a multiple of 4 bits in binary).
+function hex_bits_str forall 'n, 'n >= 0 . (x : bits('n)) -> string =
+  bits_str(zero_extend((3 - (('n + 3) % 4)) + 'n, x))

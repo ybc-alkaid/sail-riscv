@@ -1,70 +1,19 @@
 /*=======================================================================================*/
-/*  RISCV Sail Model                                                                     */
-/*                                                                                       */
 /*  This Sail RISC-V architecture model, comprising all files and                        */
-/*  directories except for the snapshots of the Lem and Sail libraries                   */
-/*  in the prover_snapshots directory (which include copies of their                     */
-/*  licences), is subject to the BSD two-clause licence below.                           */
+/*  directories except where otherwise noted is subject the BSD                          */
+/*  two-clause license in the LICENSE file.                                              */
 /*                                                                                       */
-/*  Copyright (c) 2017-2021                                                              */
-/*    Prashanth Mundkur                                                                  */
-/*    Rishiyur S. Nikhil and Bluespec, Inc.                                              */
-/*    Jon French                                                                         */
-/*    Brian Campbell                                                                     */
-/*    Robert Norton-Wright                                                               */
-/*    Alasdair Armstrong                                                                 */
-/*    Thomas Bauereiss                                                                   */
-/*    Shaked Flur                                                                        */
-/*    Christopher Pulte                                                                  */
-/*    Peter Sewell                                                                       */
-/*    Alexander Richardson                                                               */
-/*    Hesham Almatary                                                                    */
-/*    Jessica Clarke                                                                     */
-/*    Microsoft, for contributions by Robert Norton-Wright and Nathaniel Wesley Filardo  */
-/*    Peter Rugg                                                                         */
-/*    Aril Computer Corp., for contributions by Scott Johnson                            */
-/*                                                                                       */
-/*  All rights reserved.                                                                 */
-/*                                                                                       */
-/*  This software was developed by the above within the Rigorous                         */
-/*  Engineering of Mainstream Systems (REMS) project, partly funded by                   */
-/*  EPSRC grant EP/K008528/1, at the Universities of Cambridge and                       */
-/*  Edinburgh.                                                                           */
-/*                                                                                       */
-/*  This software was developed by SRI International and the University of               */
-/*  Cambridge Computer Laboratory (Department of Computer Science and                    */
-/*  Technology) under DARPA/AFRL contract FA8650-18-C-7809 ("CIFV"), and                 */
-/*  under DARPA contract HR0011-18-C-0016 ("ECATS") as part of the DARPA                 */
-/*  SSITH research programme.                                                            */
-/*                                                                                       */
-/*  This project has received funding from the European Research Council                 */
-/*  (ERC) under the European Union’s Horizon 2020 research and innovation                */
-/*  programme (grant agreement 789108, ELVER).                                           */
-/*                                                                                       */
-/*                                                                                       */
-/*  Redistribution and use in source and binary forms, with or without                   */
-/*  modification, are permitted provided that the following conditions                   */
-/*  are met:                                                                             */
-/*  1. Redistributions of source code must retain the above copyright                    */
-/*     notice, this list of conditions and the following disclaimer.                     */
-/*  2. Redistributions in binary form must reproduce the above copyright                 */
-/*     notice, this list of conditions and the following disclaimer in                   */
-/*     the documentation and/or other materials provided with the                        */
-/*     distribution.                                                                     */
-/*                                                                                       */
-/*  THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS''                   */
-/*  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED                    */
-/*  TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A                      */
-/*  PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR                  */
-/*  CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,                         */
-/*  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT                     */
-/*  LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF                     */
-/*  USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND                  */
-/*  ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,                   */
-/*  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT                   */
-/*  OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF                   */
-/*  SUCH DAMAGE.                                                                         */
+/*  SPDX-License-Identifier: BSD-2-Clause                                                */
 /*=======================================================================================*/
+
+/* Platform configuration */
+
+/* How many PMP entries are implemented. This must be 0, 16 or 64 (this is checked at runtime). */
+let sys_pmp_count : {0, 16, 64} = config memory.pmp.count
+
+/* G parameter that specifies the PMP grain size. The grain size is 2^(G+2), e.g.
+   G=0 -> 4 bytes, G=10 -> 4096 bytes. */
+let sys_pmp_grain : range(0, 63) = config memory.pmp.grain
 
 /* PMP configuration entries */
 
@@ -100,119 +49,217 @@ bitfield Pmpcfg_ent : bits(8) = {
   R : 0         /* read */
 }
 
-register pmp0cfg  : Pmpcfg_ent
-register pmp1cfg  : Pmpcfg_ent
-register pmp2cfg  : Pmpcfg_ent
-register pmp3cfg  : Pmpcfg_ent
-register pmp4cfg  : Pmpcfg_ent
-register pmp5cfg  : Pmpcfg_ent
-register pmp6cfg  : Pmpcfg_ent
-register pmp7cfg  : Pmpcfg_ent
-register pmp8cfg  : Pmpcfg_ent
-register pmp9cfg  : Pmpcfg_ent
-register pmp10cfg : Pmpcfg_ent
-register pmp11cfg : Pmpcfg_ent
-register pmp12cfg : Pmpcfg_ent
-register pmp13cfg : Pmpcfg_ent
-register pmp14cfg : Pmpcfg_ent
-register pmp15cfg : Pmpcfg_ent
-
-/* PMP address configuration */
-
-register pmpaddr0  : xlenbits
-register pmpaddr1  : xlenbits
-register pmpaddr2  : xlenbits
-register pmpaddr3  : xlenbits
-register pmpaddr4  : xlenbits
-register pmpaddr5  : xlenbits
-register pmpaddr6  : xlenbits
-register pmpaddr7  : xlenbits
-register pmpaddr8  : xlenbits
-register pmpaddr9  : xlenbits
-register pmpaddr10 : xlenbits
-register pmpaddr11 : xlenbits
-register pmpaddr12 : xlenbits
-register pmpaddr13 : xlenbits
-register pmpaddr14 : xlenbits
-register pmpaddr15 : xlenbits
+register pmpcfg_n : vector(64, Pmpcfg_ent)
+register pmpaddr_n : vector(64, xlenbits)
 
 /* Packing and unpacking pmpcfg regs for xlen-width accesses */
 
-val pmpReadCfgReg : forall 'n, 0 <= 'n < 4 . (atom('n)) -> xlenbits effect {rreg}
-function pmpReadCfgReg(n) = {
-  if   sizeof(xlen) == 32
-  then match n {
-         0 => append(pmp3cfg.bits(),  append(pmp2cfg.bits(),  append(pmp1cfg.bits(),  pmp0cfg.bits()))),
-         1 => append(pmp7cfg.bits(),  append(pmp6cfg.bits(),  append(pmp5cfg.bits(),  pmp4cfg.bits()))),
-         2 => append(pmp11cfg.bits(), append(pmp10cfg.bits(), append(pmp9cfg.bits(),  pmp8cfg.bits()))),
-         3 => append(pmp15cfg.bits(), append(pmp14cfg.bits(), append(pmp13cfg.bits(), pmp12cfg.bits())))
-       }
-  else match n { //  sizeof(xlen) == 64
-         0 => append(pmp7cfg.bits(),  append(pmp6cfg.bits(),  append(pmp5cfg.bits(),  append(pmp4cfg.bits(),  append(pmp3cfg.bits(),  append(pmp2cfg.bits(),  append(pmp1cfg.bits(),  pmp0cfg.bits()))))))),
-         2 => append(pmp15cfg.bits(), append(pmp14cfg.bits(), append(pmp13cfg.bits(), append(pmp12cfg.bits(), append(pmp11cfg.bits(), append(pmp10cfg.bits(), append(pmp9cfg.bits(),  pmp8cfg.bits())))))))
-       }
+function pmpReadCfgReg(n : range(0, 15)) -> xlenbits = {
+  if xlen == 32
+  then {
+    pmpcfg_n[n*4 + 3].bits @
+    pmpcfg_n[n*4 + 2].bits @
+    pmpcfg_n[n*4 + 1].bits @
+    pmpcfg_n[n*4 + 0].bits
+  }
+  else {
+    assert(n % 2 == 0, "Unexpected pmp config reg read");
+    pmpcfg_n[n*4 + 7].bits @
+    pmpcfg_n[n*4 + 6].bits @
+    pmpcfg_n[n*4 + 5].bits @
+    pmpcfg_n[n*4 + 4].bits @
+    pmpcfg_n[n*4 + 3].bits @
+    pmpcfg_n[n*4 + 2].bits @
+    pmpcfg_n[n*4 + 1].bits @
+    pmpcfg_n[n*4 + 0].bits
+  }
+}
+
+function pmpReadAddrReg(n : range(0, 63)) -> xlenbits = {
+  let G = sys_pmp_grain;
+  let match_type = pmpcfg_n[n][A];
+  let addr = pmpaddr_n[n];
+
+  match match_type[1] {
+    bitone if G >= 2 => {
+      // [G-2..0] read as all ones to form mask, therefore we need G-1 bits.
+      let mask : xlenbits = zero_extend(ones(min(G - 1, xlen)));
+      addr | mask
+    },
+
+    bitzero if G >= 1 => {
+      // [G-1..0] read as all zeros to form mask, therefore we need G bits.
+      let mask : xlenbits = zero_extend(ones(min(G , xlen)));
+      addr & ~(mask)
+    },
+
+    _ => addr,
+  }
 }
 
 /* Helpers to handle locked entries */
 function pmpLocked(cfg: Pmpcfg_ent) -> bool =
-   cfg.L() == 0b1
+   cfg[L] == 0b1
 
 function pmpTORLocked(cfg: Pmpcfg_ent) -> bool =
-   (cfg.L() == 0b1) & (pmpAddrMatchType_of_bits(cfg.A()) == TOR)
+   (cfg[L] == 0b1) & (pmpAddrMatchType_of_bits(cfg[A]) == TOR)
 
-function pmpWriteCfg(cfg: Pmpcfg_ent, v: bits(8)) -> Pmpcfg_ent =
+function pmpWriteCfg(n: range(0, 63), cfg: Pmpcfg_ent, v: bits(8)) -> Pmpcfg_ent =
   if pmpLocked(cfg) then cfg
-  else Mk_Pmpcfg_ent(v & 0x9f)  // Bits 5 and 6 are zero.
+  else {
+    // Bits 5 and 6 are zero.
+    let cfg = Mk_Pmpcfg_ent(v & 0x9f);
 
-val pmpWriteCfgReg : forall 'n, 0 <= 'n < 4 . (atom('n), xlenbits) -> unit effect {rreg, wreg}
-function pmpWriteCfgReg(n, v) = {
-  if   sizeof(xlen) == 32
-  then match n {
-         0 => { pmp0cfg  = pmpWriteCfg(pmp0cfg,  v[7 ..0]);
-                pmp1cfg  = pmpWriteCfg(pmp1cfg,  v[15..8]);
-                pmp2cfg  = pmpWriteCfg(pmp2cfg,  v[23..16]);
-                pmp3cfg  = pmpWriteCfg(pmp3cfg,  v[31..24]);
-              },
-         1 => { pmp4cfg  = pmpWriteCfg(pmp4cfg,  v[7 ..0]);
-                pmp5cfg  = pmpWriteCfg(pmp5cfg,  v[15..8]);
-                pmp6cfg  = pmpWriteCfg(pmp6cfg,  v[23..16]);
-                pmp7cfg  = pmpWriteCfg(pmp7cfg,  v[31..24]);
-              },
-         2 => { pmp8cfg  = pmpWriteCfg(pmp8cfg,  v[7 ..0]);
-                pmp9cfg  = pmpWriteCfg(pmp9cfg,  v[15..8]);
-                pmp10cfg = pmpWriteCfg(pmp10cfg, v[23..16]);
-                pmp11cfg = pmpWriteCfg(pmp11cfg, v[31..24]);
-              },
-         3 => { pmp12cfg = pmpWriteCfg(pmp12cfg, v[7 ..0]);
-                pmp13cfg = pmpWriteCfg(pmp13cfg, v[15..8]);
-                pmp14cfg = pmpWriteCfg(pmp14cfg, v[23..16]);
-                pmp15cfg = pmpWriteCfg(pmp15cfg, v[31..24]);
-              }
-       }
-  else if sizeof(xlen) == 64
-  then match n {
-         0 => { pmp0cfg  = pmpWriteCfg(pmp0cfg,  v[7 ..0]);
-                pmp1cfg  = pmpWriteCfg(pmp1cfg,  v[15..8]);
-                pmp2cfg  = pmpWriteCfg(pmp2cfg,  v[23..16]);
-                pmp3cfg  = pmpWriteCfg(pmp3cfg,  v[31..24]);
-                pmp4cfg  = pmpWriteCfg(pmp4cfg,  v[39..32]);
-                pmp5cfg  = pmpWriteCfg(pmp5cfg,  v[47..40]);
-                pmp6cfg  = pmpWriteCfg(pmp6cfg,  v[55..48]);
-                pmp7cfg  = pmpWriteCfg(pmp7cfg,  v[63..56])
-              },
-         2 => { pmp8cfg  = pmpWriteCfg(pmp8cfg,  v[7 ..0]);
-                pmp9cfg  = pmpWriteCfg(pmp9cfg,  v[15..8]);
-                pmp10cfg = pmpWriteCfg(pmp10cfg, v[23..16]);
-                pmp11cfg = pmpWriteCfg(pmp11cfg, v[31..24]);
-                pmp12cfg = pmpWriteCfg(pmp12cfg, v[39..32]);
-                pmp13cfg = pmpWriteCfg(pmp13cfg, v[47..40]);
-                pmp14cfg = pmpWriteCfg(pmp14cfg, v[55..48]);
-                pmp15cfg = pmpWriteCfg(pmp15cfg, v[63..56])
-              }
-       }
+    // "The R, W, and X fields form a collective WARL field for which the combinations with R=0 and W=1 are reserved."
+    // In this implementation if R=0 and W=1 then R, W and X are all set to 0.
+    // This is the least risky option from a security perspective.
+    let cfg = if cfg[W] == 0b1 & cfg[R] == 0b0 then [cfg with X = 0b0, W = 0b0, R = 0b0] else cfg;
+
+    // "When G >= 1, the NA4 mode is not selectable."
+    // In this implementation we set it to OFF if NA4 is selected.
+    // This is the least risky option from a security perspective.
+    let cfg = if sys_pmp_grain >= 1 & pmpAddrMatchType_of_bits(cfg[A]) == NA4
+              then [cfg with A = pmpAddrMatchType_to_bits(OFF)]
+              else cfg;
+
+    cfg
+  }
+
+function pmpWriteCfgReg(n : range(0, 15), v : xlenbits) -> unit = {
+  if xlen == 32
+  then {
+    foreach (i from 0 to 3) {
+      let idx = n*4 + i;
+      pmpcfg_n[idx]  = pmpWriteCfg(idx,  pmpcfg_n[idx],  v[8*i+7 .. 8*i]);
+    }
+  }
+  else {
+    assert(n % 2 == 0, "Unexpected pmp config reg write");
+    foreach (i from 0 to 7) {
+      let idx = n*4 + i;
+      pmpcfg_n[idx]  = pmpWriteCfg(idx,  pmpcfg_n[idx],  v[8*i+7 .. 8*i]);
+    }
+  }
 }
 
 function pmpWriteAddr(locked: bool, tor_locked: bool, reg: xlenbits, v: xlenbits) -> xlenbits =
-  if   sizeof(xlen) == 32
+  if   xlen == 32
   then { if (locked | tor_locked) then reg else v }
-  else { if (locked | tor_locked) then reg else EXTZ(v[53..0]) }
+  else { if (locked | tor_locked) then reg else zero_extend(v[53..0]) }
+
+function pmpWriteAddrReg(n : range(0, 63), v : xlenbits) -> unit = {
+  pmpaddr_n[n] = pmpWriteAddr(
+    pmpLocked(pmpcfg_n[n]),
+    if n + 1 < 64 then pmpTORLocked(pmpcfg_n[n + 1]) else false,
+    pmpaddr_n[n],
+    v,
+  );
+}
+
+/* PMP CSRs */
+mapping clause csr_name_map = 0x3A0  <-> "pmpcfg0"
+mapping clause csr_name_map = 0x3A1  <-> "pmpcfg1"
+mapping clause csr_name_map = 0x3A2  <-> "pmpcfg2"
+mapping clause csr_name_map = 0x3A3  <-> "pmpcfg3"
+mapping clause csr_name_map = 0x3A4  <-> "pmpcfg4"
+mapping clause csr_name_map = 0x3A5  <-> "pmpcfg5"
+mapping clause csr_name_map = 0x3A6  <-> "pmpcfg6"
+mapping clause csr_name_map = 0x3A7  <-> "pmpcfg7"
+mapping clause csr_name_map = 0x3A8  <-> "pmpcfg8"
+mapping clause csr_name_map = 0x3A9  <-> "pmpcfg9"
+mapping clause csr_name_map = 0x3AA  <-> "pmpcfg10"
+mapping clause csr_name_map = 0x3AB  <-> "pmpcfg11"
+mapping clause csr_name_map = 0x3AC  <-> "pmpcfg12"
+mapping clause csr_name_map = 0x3AD  <-> "pmpcfg13"
+mapping clause csr_name_map = 0x3AE  <-> "pmpcfg14"
+mapping clause csr_name_map = 0x3AF  <-> "pmpcfg15"
+
+mapping clause csr_name_map = 0x3B0  <-> "pmpaddr0"
+mapping clause csr_name_map = 0x3B1  <-> "pmpaddr1"
+mapping clause csr_name_map = 0x3B2  <-> "pmpaddr2"
+mapping clause csr_name_map = 0x3B3  <-> "pmpaddr3"
+mapping clause csr_name_map = 0x3B4  <-> "pmpaddr4"
+mapping clause csr_name_map = 0x3B5  <-> "pmpaddr5"
+mapping clause csr_name_map = 0x3B6  <-> "pmpaddr6"
+mapping clause csr_name_map = 0x3B7  <-> "pmpaddr7"
+mapping clause csr_name_map = 0x3B8  <-> "pmpaddr8"
+mapping clause csr_name_map = 0x3B9  <-> "pmpaddr9"
+mapping clause csr_name_map = 0x3BA  <-> "pmpaddr10"
+mapping clause csr_name_map = 0x3BB  <-> "pmpaddr11"
+mapping clause csr_name_map = 0x3BC  <-> "pmpaddr12"
+mapping clause csr_name_map = 0x3BD  <-> "pmpaddr13"
+mapping clause csr_name_map = 0x3BE  <-> "pmpaddr14"
+mapping clause csr_name_map = 0x3BF  <-> "pmpaddr15"
+mapping clause csr_name_map = 0x3C0  <-> "pmpaddr16"
+mapping clause csr_name_map = 0x3C1  <-> "pmpaddr17"
+mapping clause csr_name_map = 0x3C2  <-> "pmpaddr18"
+mapping clause csr_name_map = 0x3C3  <-> "pmpaddr19"
+mapping clause csr_name_map = 0x3C4  <-> "pmpaddr20"
+mapping clause csr_name_map = 0x3C5  <-> "pmpaddr21"
+mapping clause csr_name_map = 0x3C6  <-> "pmpaddr22"
+mapping clause csr_name_map = 0x3C7  <-> "pmpaddr23"
+mapping clause csr_name_map = 0x3C8  <-> "pmpaddr24"
+mapping clause csr_name_map = 0x3C9  <-> "pmpaddr25"
+mapping clause csr_name_map = 0x3CA  <-> "pmpaddr26"
+mapping clause csr_name_map = 0x3CB  <-> "pmpaddr27"
+mapping clause csr_name_map = 0x3CC  <-> "pmpaddr28"
+mapping clause csr_name_map = 0x3CD  <-> "pmpaddr29"
+mapping clause csr_name_map = 0x3CE  <-> "pmpaddr30"
+mapping clause csr_name_map = 0x3CF  <-> "pmpaddr31"
+mapping clause csr_name_map = 0x3D0  <-> "pmpaddr32"
+mapping clause csr_name_map = 0x3D1  <-> "pmpaddr33"
+mapping clause csr_name_map = 0x3D2  <-> "pmpaddr34"
+mapping clause csr_name_map = 0x3D3  <-> "pmpaddr35"
+mapping clause csr_name_map = 0x3D4  <-> "pmpaddr36"
+mapping clause csr_name_map = 0x3D5  <-> "pmpaddr37"
+mapping clause csr_name_map = 0x3D6  <-> "pmpaddr38"
+mapping clause csr_name_map = 0x3D7  <-> "pmpaddr39"
+mapping clause csr_name_map = 0x3D8  <-> "pmpaddr40"
+mapping clause csr_name_map = 0x3D9  <-> "pmpaddr41"
+mapping clause csr_name_map = 0x3DA  <-> "pmpaddr42"
+mapping clause csr_name_map = 0x3DB  <-> "pmpaddr43"
+mapping clause csr_name_map = 0x3DC  <-> "pmpaddr44"
+mapping clause csr_name_map = 0x3DD  <-> "pmpaddr45"
+mapping clause csr_name_map = 0x3DE  <-> "pmpaddr46"
+mapping clause csr_name_map = 0x3DF  <-> "pmpaddr47"
+mapping clause csr_name_map = 0x3E0  <-> "pmpaddr48"
+mapping clause csr_name_map = 0x3E1  <-> "pmpaddr49"
+mapping clause csr_name_map = 0x3E2  <-> "pmpaddr50"
+mapping clause csr_name_map = 0x3E3  <-> "pmpaddr51"
+mapping clause csr_name_map = 0x3E4  <-> "pmpaddr52"
+mapping clause csr_name_map = 0x3E5  <-> "pmpaddr53"
+mapping clause csr_name_map = 0x3E6  <-> "pmpaddr54"
+mapping clause csr_name_map = 0x3E7  <-> "pmpaddr55"
+mapping clause csr_name_map = 0x3E8  <-> "pmpaddr56"
+mapping clause csr_name_map = 0x3E9  <-> "pmpaddr57"
+mapping clause csr_name_map = 0x3EA  <-> "pmpaddr58"
+mapping clause csr_name_map = 0x3EB  <-> "pmpaddr59"
+mapping clause csr_name_map = 0x3EC  <-> "pmpaddr60"
+mapping clause csr_name_map = 0x3ED  <-> "pmpaddr61"
+mapping clause csr_name_map = 0x3EE  <-> "pmpaddr62"
+mapping clause csr_name_map = 0x3EF  <-> "pmpaddr63"
+
+// pmpcfgN
+function clause is_CSR_defined(0x3A) @ idx : bits(4) = sys_pmp_count > unsigned(idx) & (idx[0] == bitzero | xlen == 32)
+function clause read_CSR(0x3A @ idx : bits(4) if idx[0] == bitzero | xlen == 32) = pmpReadCfgReg(unsigned(idx))
+function clause write_CSR((0x3A @ idx : bits(4), value) if idx[0] == bitzero | xlen == 32) = {
+  let idx = unsigned(idx);
+  pmpWriteCfgReg(idx, value);
+  pmpReadCfgReg(idx)
+}
+
+// pmpaddrN. Unfortunately the PMP index does not nicely align with the CSR index bits.
+function clause is_CSR_defined(0x3B) @ idx : bits(4) = sys_pmp_count > unsigned(0b00 @ idx)
+function clause is_CSR_defined(0x3C) @ idx : bits(4) = sys_pmp_count > unsigned(0b01 @ idx)
+function clause is_CSR_defined(0x3D) @ idx : bits(4) = sys_pmp_count > unsigned(0b10 @ idx)
+function clause is_CSR_defined(0x3E) @ idx : bits(4) = sys_pmp_count > unsigned(0b11 @ idx)
+
+function clause read_CSR(0x3B @ idx : bits(4)) = pmpReadAddrReg(unsigned(0b00 @ idx))
+function clause read_CSR(0x3C @ idx : bits(4)) = pmpReadAddrReg(unsigned(0b01 @ idx))
+function clause read_CSR(0x3D @ idx : bits(4)) = pmpReadAddrReg(unsigned(0b10 @ idx))
+function clause read_CSR(0x3E @ idx : bits(4)) = pmpReadAddrReg(unsigned(0b11 @ idx))
+
+function clause write_CSR(0x3B @ idx : bits(4), value) = { let idx = unsigned(0b00 @ idx); pmpWriteAddrReg(idx, value); pmpReadAddrReg(idx) }
+function clause write_CSR(0x3C @ idx : bits(4), value) = { let idx = unsigned(0b01 @ idx); pmpWriteAddrReg(idx, value); pmpReadAddrReg(idx) }
+function clause write_CSR(0x3D @ idx : bits(4), value) = { let idx = unsigned(0b10 @ idx); pmpWriteAddrReg(idx, value); pmpReadAddrReg(idx) }
+function clause write_CSR(0x3E @ idx : bits(4), value) = { let idx = unsigned(0b11 @ idx); pmpWriteAddrReg(idx, value); pmpReadAddrReg(idx) }
